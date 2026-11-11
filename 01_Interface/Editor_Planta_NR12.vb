@@ -153,10 +153,10 @@ Sub CriarJanela()
     rodape.BackColor = SD.Color.White
     janela.Controls.Add(rodape)
 
-    Dim salvar As Button = CriarBotao(rodape, "Salvar planta", 818, 12, 125, 38, True)
-    AddHandler salvar.Click, AddressOf Salvar
-    Dim carregar As Button = CriarBotao(rodape, "Carregar", 965, 12, 118, 38, False)
-    AddHandler carregar.Click, AddressOf Carregar
+    Dim btnSalvar As Button = CriarBotao(rodape, "Salvar planta", 818, 12, 125, 38, True)
+    AddHandler btnSalvar.Click, AddressOf Salvar
+    Dim btnCarregar As Button = CriarBotao(rodape, "Carregar", 965, 12, 118, 38, False)
+    AddHandler btnCarregar.Click, AddressOf Carregar
     lblStatus = New Label()
     lblStatus.Location = New SD.Point(25, 20)
     lblStatus.Size = New SD.Size(775, 26)

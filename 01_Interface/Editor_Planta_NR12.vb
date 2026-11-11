@@ -403,7 +403,8 @@ End Sub
 
 
 ' Convencao grafica de planta: a linha do vao NAO recebe painel continuo.
-Private Sub DesenharSimboloPorta(g As SD.Graphics, s As SegmentoNR, cor As SD.Color)
+Private Sub DesenharSimboloPorta(g As SD.Graphics, indice As Integer, cor As SD.Color)
+    Dim s As SegmentoNR = lista(indice)
     Dim x1 As Single = CSng(origemX + s.X1 * escala)
     Dim y1 As Single = CSng(origemY - s.Y1 * escala)
     Dim x2 As Single = CSng(origemX + s.X2 * escala)
@@ -443,7 +444,8 @@ Private Sub DesenharSimboloPorta(g As SD.Graphics, s As SegmentoNR, cor As SD.Co
     End Using
 End Sub
 
-Private Sub DesenharSimboloJanela(g As SD.Graphics, s As SegmentoNR, cor As SD.Color)
+Private Sub DesenharSimboloJanela(g As SD.Graphics, indice As Integer, cor As SD.Color)
+    Dim s As SegmentoNR = lista(indice)
     Dim x1 As Single = CSng(origemX + s.X1 * escala)
     Dim y1 As Single = CSng(origemY - s.Y1 * escala)
     Dim x2 As Single = CSng(origemX + s.X2 * escala)
@@ -480,9 +482,9 @@ Sub DesenharPlanta(sender As Object, e As PaintEventArgs)
         Dim s As SegmentoNR = lista(i)
         Dim cor As SD.Color = If(i = selecionado, AMBAR, If(s.Modulo = "Com porta", SD.Color.FromArgb(46, 158, 91), If(s.Modulo = "Com janela", SD.Color.FromArgb(37, 145, 210), ROXO)))
         If s.Modulo = "Com porta" Then
-            DesenharSimboloPorta(g, s, cor)
+            DesenharSimboloPorta(g, i, cor)
         ElseIf s.Modulo = "Com janela" Then
-            DesenharSimboloJanela(g, s, cor)
+            DesenharSimboloJanela(g, i, cor)
         Else
             Using linha As New SD.Pen(cor, If(i = selecionado, 5.0F, 3.0F))
                 g.DrawLine(linha, CSng(origemX + s.X1 * escala), CSng(origemY - s.Y1 * escala), CSng(origemX + s.X2 * escala), CSng(origemY - s.Y2 * escala))

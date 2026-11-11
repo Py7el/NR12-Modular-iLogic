@@ -4,7 +4,8 @@ Imports SD = System.Drawing
 Imports IO = System.IO
 
 ' NR12 Modular — prototipo do editor 2D para iLogic / Inventor 2024.
-' VERSAO TESTE V0.3 - modulos, snap angular, fechamento e gerador 3D.
+' VERSAO TESTE V0.4 - cotas editaveis com comprimento exato (mm).
+' A malha de 500 mm limita apenas novos cliques, nao a edicao de cotas.
 ' Inspirado na composicao e paleta do Painel_parametros.vb do projeto original.
 ' Ainda nao gera montagem 3D nem valida requisitos normativos.
 
@@ -95,7 +96,7 @@ Sub CriarJanela()
     cab.Controls.Add(subtitulo)
 
     Dim textoAcao As New Label()
-    textoAcao.Text = "Grade 500 x 500 mm | cliques presos as intersecoes | Novo trecho para linhas desconectadas."
+    textoAcao.Text = "Grade 500 mm ao desenhar | cotas exatas: duplo clique na linha ou medida (mm)."
     textoAcao.Location = New SD.Point(25, 104)
     textoAcao.Size = New SD.Size(760, 22)
     textoAcao.ForeColor = TEXTO
@@ -110,6 +111,7 @@ Sub CriarJanela()
     desenho.GetType().GetProperty("DoubleBuffered", System.Reflection.BindingFlags.Instance Or System.Reflection.BindingFlags.NonPublic).SetValue(desenho, True, Nothing)
     AddHandler desenho.Paint, Sub(s As Object, e As PaintEventArgs) DesenharPlanta(s, e)
     AddHandler desenho.MouseDown, Sub(s As Object, e As MouseEventArgs) CliquePlanta(s, e)
+    AddHandler desenho.MouseDoubleClick, Sub(s As Object, e As MouseEventArgs) EditarCotaPorDuploClique(s, e)
     janela.Controls.Add(desenho)
 
     Dim lateral As New Panel()
@@ -164,7 +166,7 @@ Sub CriarJanela()
     Dim apagar As Button = CriarBotao(lateral, "Excluir selecionado", 15, 474, 240, 30, False)
     AddHandler apagar.Click, Sub(s As Object, e As EventArgs) ExcluirSegmento(s, e)
     Dim ajuda As New Label()
-    ajuda.Text = "AJUDA: clique para desenhar; perto da linha para selecionar. Fechar cercado conecta o ultimo ponto ao primeiro."
+    ajuda.Text = "AJUDA: clique na linha para selecionar. Duplo clique na linha ou cota para editar em mm. Fechar cercado une o ultimo ponto ao primeiro."
     ajuda.Location = New SD.Point(15, 517)
     ajuda.Size = New SD.Size(245, 55)
     ajuda.ForeColor = SD.Color.FromArgb(74, 69, 96)
@@ -244,7 +246,8 @@ Sub CliquePlanta(sender As Object, e As MouseEventArgs)
             End If
         End If
     End If
-    Dim idx As Integer = IndiceProximo(e.X, e.Y)
+    Dim idx As Integer = IndiceCota(e.X, e.Y)
+    If idx < 0 Then idx = IndiceProximo(e.X, e.Y)
     If idx >= 0 Then
         selecionado = idx
         ExibirPropriedades()
@@ -284,7 +287,6 @@ Sub CliquePlanta(sender As Object, e As MouseEventArgs)
             x = ArredondarGrade(ultimoX + comprimento * Math.Cos(ang))
             y = ArredondarGrade(ultimoY + comprimento * Math.Sin(ang))
         End If
-    End If
         If Math.Abs(x - ultimoX) + Math.Abs(y - ultimoY) > 1 Then
             Dim s As New SegmentoNR()
             s.X1 = ultimoX : s.Y1 = ultimoY
@@ -328,6 +330,117 @@ Function IndiceProximo(px As Integer, py As Integer) As Integer
     Return melhor
 End Function
 
+' Identifica a caixa visual da cota (e nao apenas o traco).
+Function IndiceCota(px As Integer, py As Integer) As Integer
+    For i As Integer = 0 To lista.Count - 1
+        Dim s As SegmentoNR = lista(i)
+        Dim ax As Double = origemX + s.X1 * escala
+        Dim ay As Double = origemY - s.Y1 * escala
+        Dim bx As Double = origemX + s.X2 * escala
+        Dim by As Double = origemY - s.Y2 * escala
+        Dim dx As Double = bx - ax, dy As Double = by - ay
+        Dim tam As Double = Math.Sqrt(dx * dx + dy * dy)
+        If tam < 0.01 Then Continue For
+        Dim nx As Double = dy / tam, ny As Double = -dx / tam
+        Dim cx As Double = (ax + bx) / 2 + nx * 17
+        Dim cy As Double = (ay + by) / 2 + ny * 17
+        If Math.Abs(px - cx) <= 38 AndAlso Math.Abs(py - cy) <= 12 Then Return i
+    Next
+    Return -1
+End Function
+
+Sub EditarCotaPorDuploClique(sender As Object, e As MouseEventArgs)
+    If e.Button <> MouseButtons.Left Then Exit Sub
+    Dim idx As Integer = IndiceCota(e.X, e.Y)
+    If idx < 0 Then idx = IndiceProximo(e.X, e.Y)
+    If idx < 0 Then Exit Sub
+    selecionado = idx
+    ExibirPropriedades()
+    Dim atual As SegmentoNR = lista(idx)
+    Dim comprimento As Double = Math.Sqrt(Math.Pow(atual.X2 - atual.X1, 2) + Math.Pow(atual.Y2 - atual.Y1, 2))
+    Using dialogo As New Form()
+        dialogo.Text = "Editar cota - Segmento " & (idx + 1).ToString()
+        dialogo.StartPosition = FormStartPosition.CenterParent
+        dialogo.FormBorderStyle = FormBorderStyle.FixedDialog
+        dialogo.MinimizeBox = False
+        dialogo.MaximizeBox = False
+        dialogo.ClientSize = New SD.Size(325, 136)
+        Dim indicacao As New Label()
+        indicacao.Text = "Novo comprimento em mm (valor exato):"
+        indicacao.Location = New SD.Point(14, 16)
+        indicacao.Size = New SD.Size(295, 22)
+        dialogo.Controls.Add(indicacao)
+        Dim valor As New TextBox()
+        valor.Location = New SD.Point(14, 45)
+        valor.Size = New SD.Size(295, 26)
+        valor.Text = comprimento.ToString("0.###", System.Globalization.CultureInfo.CurrentCulture)
+        valor.SelectAll()
+        dialogo.Controls.Add(valor)
+        Dim confirmar As New Button()
+        confirmar.Text = "Aplicar"
+        confirmar.Location = New SD.Point(125, 90)
+        confirmar.Size = New SD.Size(85, 30)
+        confirmar.DialogResult = DialogResult.OK
+        dialogo.Controls.Add(confirmar)
+        Dim cancelar As New Button()
+        cancelar.Text = "Cancelar"
+        cancelar.Location = New SD.Point(220, 90)
+        cancelar.Size = New SD.Size(90, 30)
+        cancelar.DialogResult = DialogResult.Cancel
+        dialogo.Controls.Add(cancelar)
+        dialogo.AcceptButton = confirmar
+        dialogo.CancelButton = cancelar
+        If dialogo.ShowDialog(janela) <> DialogResult.OK Then Exit Sub
+        Dim textoMedida As String = valor.Text.Trim().Replace(" ", "")
+        Dim medida As Double
+        If Not Double.TryParse(textoMedida, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.CurrentCulture, medida) Then
+            If Not Double.TryParse(textoMedida.Replace(","c, "."c), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, medida) Then
+                MessageBox.Show("Informe um numero valido em milimetros.", "NR12")
+                Exit Sub
+            End If
+        End If
+        If Double.IsNaN(medida) OrElse Double.IsInfinity(medida) OrElse medida < 1 OrElse medida > 100000 Then
+            MessageBox.Show("Informe um comprimento entre 1 e 100000 mm.", "NR12")
+            Exit Sub
+        End If
+        AtualizarComprimentoExato(idx, medida)
+    End Using
+End Sub
+
+Sub AtualizarComprimentoExato(idx As Integer, novaMedida As Double)
+    Dim s As SegmentoNR = lista(idx)
+    Dim deltaX As Double = s.X2 - s.X1
+    Dim deltaY As Double = s.Y2 - s.Y1
+    Dim anterior As Double = Math.Sqrt(deltaX * deltaX + deltaY * deltaY)
+    If anterior < 0.000001 Then Exit Sub
+    Dim antigoX As Double = s.X2
+    Dim antigoY As Double = s.Y2
+    Dim novoX As Double = s.X1 + deltaX * novaMedida / anterior
+    Dim novoY As Double = s.Y1 + deltaY * novaMedida / anterior
+    ' Mantem coincidencia do vertice com os segmentos vizinhos do mesmo grupo.
+    ' Segmentos adjacentes podem mudar de comprimento/angulo.
+    For i As Integer = 0 To lista.Count - 1
+        If i = idx Then Continue For
+        Dim vizinho As SegmentoNR = lista(i)
+        If vizinho.Grupo <> s.Grupo Then Continue For
+        If Math.Abs(vizinho.X1 - antigoX) < 0.01 AndAlso Math.Abs(vizinho.Y1 - antigoY) < 0.01 Then
+            vizinho.X1 = novoX : vizinho.Y1 = novoY
+        End If
+        If Math.Abs(vizinho.X2 - antigoX) < 0.01 AndAlso Math.Abs(vizinho.Y2 - antigoY) < 0.01 Then
+            vizinho.X2 = novoX : vizinho.Y2 = novoY
+        End If
+    Next
+    s.X2 = novoX : s.Y2 = novoY
+    If temPonto AndAlso s.Grupo = grupoAtual Then
+        If Math.Abs(ultimoX - antigoX) < 0.01 AndAlso Math.Abs(ultimoY - antigoY) < 0.01 Then
+            ultimoX = novoX : ultimoY = novoY
+        End If
+    End If
+    ExibirPropriedades()
+    lblStatus.Text = "Cota atualizada para " & novaMedida.ToString("0.###") & " mm. Pontos ligados ajustados."
+    desenho.Invalidate()
+End Sub
+
 Sub DesenharPlanta(sender As Object, e As PaintEventArgs)
     Dim g As SD.Graphics = e.Graphics
     g.SmoothingMode = SD.Drawing2D.SmoothingMode.AntiAlias
@@ -352,6 +465,30 @@ Sub DesenharPlanta(sender As Object, e As PaintEventArgs)
         Using linha As New SD.Pen(cor, If(i = selecionado, 5.0F, 3.0F))
             g.DrawLine(linha, CSng(origemX + s.X1 * escala), CSng(origemY - s.Y1 * escala), CSng(origemX + s.X2 * escala), CSng(origemY - s.Y2 * escala))
         End Using
+        ' Cota sempre exibida, ligeiramente afastada do eixo do segmento.
+        Dim ex As Double = origemX + s.X1 * escala
+        Dim ey As Double = origemY - s.Y1 * escala
+        Dim fx As Double = origemX + s.X2 * escala
+        Dim fy As Double = origemY - s.Y2 * escala
+        Dim vx As Double = fx - ex, vy As Double = fy - ey
+        Dim vlen As Double = Math.Sqrt(vx * vx + vy * vy)
+        If vlen > 0.01 Then
+            Dim ladoX As Double = vy / vlen, ladoY As Double = -vx / vlen
+            Dim cx As Single = CSng((ex + fx) / 2 + ladoX * 17)
+            Dim cy As Single = CSng((ey + fy) / 2 + ladoY * 17)
+            Dim comprimentoMM As Double = Math.Sqrt(Math.Pow(s.X2 - s.X1, 2) + Math.Pow(s.Y2 - s.Y1, 2))
+            Dim cotaTxt As String = comprimentoMM.ToString("0.##") & " mm"
+            Using fonteCota As New SD.Font("Arial", 8, SD.FontStyle.Bold)
+                Dim tamanhoTxt As SD.SizeF = g.MeasureString(cotaTxt, fonteCota)
+                Dim fundoCota As New SD.RectangleF(cx - tamanhoTxt.Width / 2 - 3, cy - tamanhoTxt.Height / 2 - 2, tamanhoTxt.Width + 6, tamanhoTxt.Height + 4)
+                Using fundoBranco As New SD.SolidBrush(SD.Color.FromArgb(245, 255, 255, 255))
+                    g.FillRectangle(fundoBranco, fundoCota)
+                End Using
+                Using tinta As New SD.SolidBrush(If(i = selecionado, SD.Color.FromArgb(116, 64, 0), ESCURO))
+                    g.DrawString(cotaTxt, fonteCota, tinta, cx - tamanhoTxt.Width / 2, cy - tamanhoTxt.Height / 2)
+                End Using
+            End Using
+        End If
         Using ponto As New SD.SolidBrush(ESCURO)
             g.FillEllipse(ponto, CSng(origemX + s.X1 * escala - 3), CSng(origemY - s.Y1 * escala - 3), 6, 6)
             g.FillEllipse(ponto, CSng(origemX + s.X2 * escala - 3), CSng(origemY - s.Y2 * escala - 3), 6, 6)

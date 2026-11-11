@@ -27,3 +27,15 @@ Registrar mensagens exatas de erro, incluindo linha da regra.
 - [ ] Gerar porta: folha simplificada sem ferragens
 - [ ] Clicar gerar novamente e conferir que nao duplicou ocorrencias NR12_ anteriores
 - [ ] Verificar caminho e unidades (mm no layout; cm na API do Inventor)
+
+## Casos manuais — continuidade, portas e variantes A/B
+
+- [ ] Salvar contorno, fechar janela, reabrir e confirmar que ele aparece automaticamente
+- [ ] Comecar novo trecho clicando numa extremidade existente e continuar por outra linha
+- [ ] Clicar no meio de um painel existente em DESENHAR; verificar se ele foi subdividido e que a ligacao parte desse ponto
+- [ ] Alternar para SELECIONAR, clicar numa linha fechada e inserir porta com largura exata e posicao nao central
+- [ ] Testar porta colada a extremidade (sobras 0 mm) e sobras abaixo de 100 mm (bloquear)
+- [ ] Fechar e reabrir; confirmar porta, dimensoes, grupo e trecho novos persistidos
+- [ ] Geração 3D de retangulo com quatro quinas: mensagem deve mostrar 4 quinas e 4 colunas A/B no total
+- [ ] Geração 3D de linha com tres segmentos colineares: nenhum poste de canto A/B
+- [ ] Checar nomes reais dos dois IPT de canto em NR12_Modelos e confirmar orientacao fisica no Inventor 2024

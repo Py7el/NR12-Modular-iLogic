@@ -2,14 +2,10 @@ Imports IO = System.IO
 Imports CI = System.Globalization.CultureInfo
 Imports IV = Inventor
 
-' PARAMETROS DE CALIBRACAO - editar se o eixo real dos grampos for diferente
-Private Const AFASTAMENTO_PLANO_GRADE_MM As Double = 65.0
-Private Const ANGULO_AJUSTE_GRAMPOS_GRAUS As Double = 0.0
-Private Const USAR_CHAPA_INFERIOR_REAL As Boolean = True
-Private Const FOLGA_INFERIOR_GRADE_MM As Double = 50.0
+' Parametros ficam nas funcoes no final desta regra para evitar declaracoes no namespace.
 
 ' NR12 Modular - gerador 3D preliminar, Inventor 2024.
-' VERSAO 0.7 - grampos externos; chapa inferior sob base; grade sobre plano de grampo.
+' VERSAO 0.7.1 - parametros em funcoes para compatibilidade com compilacao iLogic.
 ' Subdivisao automatica max. 2500 mm entre eixos de postes.
 ' Montantes e bases inseridos a partir da biblioteca CAD real fornecida.
 ' Criar como regra iLogic separada: Gerar_3D_NR12
@@ -103,7 +99,7 @@ Sub Main()
         MessageBox.Show("Faltam arquivos IPT referenciados pela base soldada.", "NR12")
         Exit Sub
     End If
-    If USAR_CHAPA_INFERIOR_REAL AndAlso Not IO.File.Exists(chapaInferiorReal) Then
+    If UsarChapaInferiorReal() AndAlso Not IO.File.Exists(chapaInferiorReal) Then
         MessageBox.Show("Chapa inferior real nao encontrada: " & chapaInferiorReal, "NR12")
         Exit Sub
     End If
@@ -185,10 +181,10 @@ Sub Main()
         CriarPosteSeNovo(pontos, normaisPorPoste, ocorr, colunaReal, baseReal, chapaInferiorReal, x2, y2, trans, qtd)
         Dim larguraUtil As Double = largura - 60
         ' A grade fica do lado EXTERNO, sobre a linha dos grampos.
-        Dim xInicial As Double = x1 + ux * 30 + nx * AFASTAMENTO_PLANO_GRADE_MM
-        Dim yInicial As Double = y1 + uy * 30 + ny * AFASTAMENTO_PLANO_GRADE_MM
-        Dim xFinal As Double = x2 + nx * AFASTAMENTO_PLANO_GRADE_MM
-        Dim yFinal As Double = y2 + ny * AFASTAMENTO_PLANO_GRADE_MM
+        Dim xInicial As Double = x1 + ux * 30 + nx * AfastamentoPlanoGradeMm()
+        Dim yInicial As Double = y1 + uy * 30 + ny * AfastamentoPlanoGradeMm()
+        Dim xFinal As Double = x2 + nx * AfastamentoPlanoGradeMm()
+        Dim yFinal As Double = y2 + ny * AfastamentoPlanoGradeMm()
         If modulo = "Com janela" Then
             Dim montante As String = ObterCaixa(dirPecas, geradas, "MontanteJanela", 50, alturaMM, 35)
             Dim travessa As String = ObterCaixa(dirPecas, geradas, "TravessaJanela", largura - 100, 50, 35)
@@ -211,28 +207,28 @@ Sub Main()
             If tipoPorta = "Porta dupla" Then
                 Dim meiaLargura As Double = (largura - 80) / 2
                 Dim caminho As String = ObterCaixa(dirPecas, geradas, "FolhaPortaDupla", meiaLargura, alturaMM - 100, 40)
-                Inserir(ocorr, caminho, MatrizPortaAberta(trans, xInicial, yInicial, ux, uy, FOLGA_INFERIOR_GRADE_MM, sinal * 60), "NR12_PORTA_DUPLA_A_" & qtd.ToString())
+                Inserir(ocorr, caminho, MatrizPortaAberta(trans, xInicial, yInicial, ux, uy, FolgaInferiorGradeMm(), sinal * 60), "NR12_PORTA_DUPLA_A_" & qtd.ToString())
                 qtd += 1
-                Inserir(ocorr, caminho, MatrizPortaAberta(trans, xFinal - ux * 30, yFinal - uy * 30, -ux, -uy, FOLGA_INFERIOR_GRADE_MM, -sinal * 60), "NR12_PORTA_DUPLA_B_" & qtd.ToString())
+                Inserir(ocorr, caminho, MatrizPortaAberta(trans, xFinal - ux * 30, yFinal - uy * 30, -ux, -uy, FolgaInferiorGradeMm(), -sinal * 60), "NR12_PORTA_DUPLA_B_" & qtd.ToString())
                 qtd += 1
             ElseIf tipoPorta = "Porta deslizante" Then
                 Dim caminho As String = ObterCaixa(dirPecas, geradas, "FolhaPorta", larguraUtil, alturaMM - 100, 40)
                 ' Simula a porta deslizada 40% para facilitar leitura visual; sem trilho mecanico.
                 Dim deslocamento As Double = larguraUtil * 0.4
-                Inserir(ocorr, caminho, MatrizPainel(trans, xInicial + ux * deslocamento - uy * 100 * sinal, yInicial + uy * deslocamento + ux * 100 * sinal, ux, uy, FOLGA_INFERIOR_GRADE_MM), "NR12_PORTA_DESLIZANTE_" & qtd.ToString())
+                Inserir(ocorr, caminho, MatrizPainel(trans, xInicial + ux * deslocamento - uy * 100 * sinal, yInicial + uy * deslocamento + ux * 100 * sinal, ux, uy, FolgaInferiorGradeMm()), "NR12_PORTA_DESLIZANTE_" & qtd.ToString())
                 qtd += 1
             Else
                 Dim caminho As String = ObterCaixa(dirPecas, geradas, "FolhaPorta", larguraUtil, alturaMM - 100, 40)
                 If direito Then
-                    Inserir(ocorr, caminho, MatrizPortaAberta(trans, xFinal - ux * 30, yFinal - uy * 30, -ux, -uy, FOLGA_INFERIOR_GRADE_MM, -sinal * 60), "NR12_PORTA_SIMPLES_DIREITA_" & qtd.ToString())
+                    Inserir(ocorr, caminho, MatrizPortaAberta(trans, xFinal - ux * 30, yFinal - uy * 30, -ux, -uy, FolgaInferiorGradeMm(), -sinal * 60), "NR12_PORTA_SIMPLES_DIREITA_" & qtd.ToString())
                 Else
-                    Inserir(ocorr, caminho, MatrizPortaAberta(trans, xInicial, yInicial, ux, uy, FOLGA_INFERIOR_GRADE_MM, sinal * 60), "NR12_PORTA_SIMPLES_ESQUERDA_" & qtd.ToString())
+                    Inserir(ocorr, caminho, MatrizPortaAberta(trans, xInicial, yInicial, ux, uy, FolgaInferiorGradeMm(), sinal * 60), "NR12_PORTA_SIMPLES_ESQUERDA_" & qtd.ToString())
                 End If
                 qtd += 1
             End If
         ElseIf Not vazio Then
             Dim caminho As String = ObterCaixa(dirPecas, geradas, "Painel", larguraUtil, alturaMM - 100, 25)
-            Inserir(ocorr, caminho, MatrizPainel(trans, xInicial, yInicial, ux, uy, FOLGA_INFERIOR_GRADE_MM), "NR12_PAINEL_" & qtd.ToString())
+            Inserir(ocorr, caminho, MatrizPainel(trans, xInicial, yInicial, ux, uy, FolgaInferiorGradeMm()), "NR12_PAINEL_" & qtd.ToString())
             qtd += 1
         End If
     Next
@@ -288,7 +284,7 @@ End Sub
 
 ' Insere CAD real em pe e gira a direcao LOCAL dos grampos para a normal externa.
 ' Usa a dimensao mais longa para reconhecer o eixo vertical da coluna/base.
-' Face real dos grampos ainda depende do ajuste ANGULO_AJUSTE_GRAMPOS_GRAUS.
+' Face real dos grampos ainda depende do ajuste AnguloAjusteGramposGraus().
 Function InserirModeloOrientado(ocorr As IV.ComponentOccurrences, caminho As String, x As Double, y As Double, zBaseMm As Double, nx As Double, ny As Double, tg As IV.TransientGeometry, nome As String, chapaHorizontal As Boolean) As IV.ComponentOccurrence
     Dim o As IV.ComponentOccurrence = ocorr.Add(caminho, tg.CreateMatrix())
     o.Name = nome
@@ -311,7 +307,7 @@ Function InserirModeloOrientado(ocorr As IV.ComponentOccurrences, caminho As Str
             eixo = 2
         End If
     End If
-    Dim ang As Double = ANGULO_AJUSTE_GRAMPOS_GRAUS * Math.PI / 180.0
+    Dim ang As Double = AnguloAjusteGramposGraus() * Math.PI / 180.0
     Dim fx As Double = nx * Math.Cos(ang) - ny * Math.Sin(ang)
     Dim fy As Double = nx * Math.Sin(ang) + ny * Math.Cos(ang)
     Dim ejeX As IV.Vector, ejeY As IV.Vector, ejeZ As IV.Vector
@@ -357,7 +353,7 @@ Sub CriarPosteSeNovo(pontos As System.Collections.Generic.Dictionary(Of String, 
         End If
     End If
     Dim zAcimaChapa As Double = 0
-    If USAR_CHAPA_INFERIOR_REAL Then
+    If UsarChapaInferiorReal() Then
         Dim ocorrChapa As IV.ComponentOccurrence = InserirModeloOrientado(ocorr, chapa, x, y, 0, nx, ny, tg, "NR12_CHAPA_INFERIOR_" & contador.ToString(), True)
         zAcimaChapa = ocorrChapa.RangeBox.MaxPoint.Z * 10
         contador += 1
@@ -414,4 +410,23 @@ Function ObterCaixa(pasta As String, cache As System.Collections.Generic.Diction
     End If
     cache.Add(chave, caminho)
     Return caminho
+End Function
+
+
+' ----- PARAMETROS DE CALIBRACAO DA VERSAO EXPERIMENTAL -----
+' Edite os valores de retorno para ajustar o modelo real.
+Function AfastamentoPlanoGradeMm() As Double
+    Return 65.0
+End Function
+
+Function AnguloAjusteGramposGraus() As Double
+    Return 0.0
+End Function
+
+Function UsarChapaInferiorReal() As Boolean
+    Return True
+End Function
+
+Function FolgaInferiorGradeMm() As Double
+    Return 50.0
 End Function

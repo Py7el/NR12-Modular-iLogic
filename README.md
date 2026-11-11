@@ -83,3 +83,14 @@ A regra `05_Gerador_3D/Gerar_3D_NR12.vb` foi atualizada para:
 - As outras faces do canto agora recebem dois **marcadores genericos** por face, identificados `NR12_PRESILHA_CANTO_REFERENCIA_...`, a 450 e 1550 mm de Z. Eles **nao sao a presilha CAD verdadeira e nao devem ser usados para fabricacao**. Podem ser desligados definindo `GerarMarcadoresCanto() = False`.
 - Os montantes e bases continuam posicionados com orientacao de estimativa derivada da caixa envolvente; a face exata dos grampos, coincidencia de furos e alturas das interfaces **ainda exigem calibracao com referencia CAD local**. O arquivo do modelo da presilha nao veio como componente individual identificavel no ZIP.
 - A regeneracao remove ocorrencias com prefixo `NR12_`. Validar tudo em uma copia da montagem.
+
+
+## Grampos nas faces dos cantos — v0.9 (experimental)
+
+No gerador `Gerar_3D_NR12.vb`, cada poste guarda as normais externas distintas dos **segmentos que possuem fechamento**; segmentos com `Tipo=Vazio` e sem porta não adicionam grampos. O conjunto real `7.1.2 - COLUNA-MONTANTE.ipt` é usado uma única vez por poste. Como o modelo da coluna já mostra grampos em uma face, o gerador só cria um par complementar (em duas alturas) para **cada face adicional**. No encontro de duas grades a 90°, haverá dois lados de fixação, sem girar o poste a 45°. Duas seções retas colineares com a mesma normal compartilham uma face.
+
+**Limitação material:** o ZIP entregue não inclui um arquivo `GRAMPO_NR12.ipt` individual. Se existir um arquivo de grampo independente com esse nome em `NR12_Modelos`, ele é inserido como peça real; em caso contrário, o gerador cria blocos genéricos identificados no navegador por `NR12_GRAMPO_EXTRA_REFERENCIA_...`. **Os blocos não são os grampos do fabricante e não devem ser usados para fabricação.** A origem, a orientação e a interface de fixação do `GRAMPO_NR12.ipt` também devem ser conferidas no Inventor.
+
+As funções de calibração ao final do gerador são `AfastamentoGrampoMm()`, `AlturaGrampoInferiorMm()` e `AlturaGrampoSuperiorMm()`. Os valores são provisórios e não vieram de cotas verificadas nos modelos.
+
+Teste numa **cópia** do IAM: a regeneração remove e reinsere ocorrências de nome iniciado por `NR12_`. Ainda não houve compilação do código dentro do Autodesk Inventor 2024.

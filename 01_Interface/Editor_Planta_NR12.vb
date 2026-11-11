@@ -58,7 +58,8 @@ Private ReadOnly ESCURO As SD.Color = SD.Color.FromArgb(27, 16, 56)
 Private ReadOnly FUNDO As SD.Color = SD.Color.FromArgb(248, 245, 252)
 Private ReadOnly BORDA As SD.Color = SD.Color.FromArgb(227, 220, 239)
 Private ReadOnly TEXTO As SD.Color = SD.Color.FromArgb(31, 27, 46)
-Private escala As Double = 0.10 ' pixels por milimetro; 1000 mm = 100 px
+Private escala As Double = 0.10 ' 500 mm = 50 pixels
+Private Const PASSO_GRADE_MM As Double = 500.0
 Private origemX As Double = 55
 Private origemY As Double = 500
 
@@ -94,7 +95,7 @@ Sub CriarJanela()
     cab.Controls.Add(subtitulo)
 
     Dim textoAcao As New Label()
-    textoAcao.Text = "Clique na planta para criar pontos. Um novo trecho permite linhas desconectadas."
+    textoAcao.Text = "Grade 500 x 500 mm | cliques presos as intersecoes | Novo trecho para linhas desconectadas."
     textoAcao.Location = New SD.Point(25, 104)
     textoAcao.Size = New SD.Size(760, 22)
     textoAcao.ForeColor = TEXTO
@@ -185,7 +186,7 @@ Sub CriarJanela()
     lblStatus.Location = New SD.Point(25, 20)
     lblStatus.Size = New SD.Size(620, 26)
     lblStatus.ForeColor = SD.Color.FromArgb(74, 69, 96)
-    lblStatus.Text = "Pronto para desenhar. Escala: 100 px por metro."
+    lblStatus.Text = "Grade ativa: 500 mm (50 px). Clique nos cruzamentos."
     rodape.Controls.Add(lblStatus)
 End Sub
 
@@ -250,25 +251,40 @@ Sub CliquePlanta(sender As Object, e As MouseEventArgs)
         desenho.Invalidate()
         Exit Sub
     End If
-    Dim x As Double = Math.Round((e.X - origemX) / escala, 0)
-    Dim y As Double = Math.Round((origemY - e.Y) / escala, 0)
+    ' Snap permanente: TODOS os vertices devem pertencer a malha de 500 mm.
+    Dim x As Double = ArredondarGrade((e.X - origemX) / escala)
+    Dim y As Double = ArredondarGrade((origemY - e.Y) / escala)
     If temPonto Then
         Dim dx As Double = x - ultimoX
         Dim dy As Double = y - ultimoY
-        Dim comprimento As Double = Math.Sqrt(dx * dx + dy * dy)
-        If comprimento > 0.001 AndAlso CStr(comboAngulo.SelectedItem) <> "Livre" Then
-            Dim ang As Double = Math.Atan2(dy, dx)
-            Select Case CStr(comboAngulo.SelectedItem)
-                Case "Passos de 90"
-                    ang = Math.Round(ang / (Math.PI / 2), 0) * (Math.PI / 2)
-                Case "Passos de 45"
-                    ang = Math.Round(ang / (Math.PI / 4), 0) * (Math.PI / 4)
-                Case "Angulo informado"
-                    ang = CDbl(campoAngulo.Value) * Math.PI / 180.0
-            End Select
-            x = Math.Round(ultimoX + comprimento * Math.Cos(ang), 0)
-            y = Math.Round(ultimoY + comprimento * Math.Sin(ang), 0)
+        Dim modo As String = CStr(comboAngulo.SelectedItem)
+        If modo = "Passos de 90" Then
+            ' Projeta no eixo mais proximo: horizontal ou vertical.
+            If Math.Abs(dx) >= Math.Abs(dy) Then
+                y = ultimoY
+            Else
+                x = ultimoX
+            End If
+        ElseIf modo = "Passos de 45" Then
+            ' 8 direcoes discretas: 0,45,90,135,180,225,270,315.
+            Dim ang As Double = Math.Round(Math.Atan2(dy, dx) / (Math.PI / 4), 0) * (Math.PI / 4)
+            If Math.Abs(Math.Cos(ang)) > 0.9 Then
+                y = ultimoY
+            ElseIf Math.Abs(Math.Sin(ang)) > 0.9 Then
+                x = ultimoX
+            Else
+                Dim passos As Double = Math.Round(Math.Max(Math.Abs(dx), Math.Abs(dy)) / PASSO_GRADE_MM, 0)
+                x = ultimoX + Math.Sign(Math.Cos(ang)) * passos * PASSO_GRADE_MM
+                y = ultimoY + Math.Sign(Math.Sin(ang)) * passos * PASSO_GRADE_MM
+            End If
+        ElseIf modo = "Angulo informado" Then
+            ' Angulos arbitrarios sao aproximados ao no de grade mais proximo.
+            Dim comprimento As Double = Math.Sqrt(dx * dx + dy * dy)
+            Dim ang As Double = CDbl(campoAngulo.Value) * Math.PI / 180.0
+            x = ArredondarGrade(ultimoX + comprimento * Math.Cos(ang))
+            y = ArredondarGrade(ultimoY + comprimento * Math.Sin(ang))
         End If
+    End If
         If Math.Abs(x - ultimoX) + Math.Abs(y - ultimoY) > 1 Then
             Dim s As New SegmentoNR()
             s.X1 = ultimoX : s.Y1 = ultimoY
@@ -288,6 +304,10 @@ Sub CliquePlanta(sender As Object, e As MouseEventArgs)
     lblStatus.Text = "Ponto (" & x.ToString() & ", " & y.ToString() & ") mm. Trecho " & grupoAtual.ToString() & "."
     desenho.Invalidate()
 End Sub
+
+Function ArredondarGrade(valor As Double) As Double
+    Return Math.Round(valor / PASSO_GRADE_MM, 0, MidpointRounding.AwayFromZero) * PASSO_GRADE_MM
+End Function
 
 Function IndiceProximo(px As Integer, py As Integer) As Integer
     Dim melhor As Integer = -1
@@ -311,11 +331,18 @@ End Function
 Sub DesenharPlanta(sender As Object, e As PaintEventArgs)
     Dim g As SD.Graphics = e.Graphics
     g.SmoothingMode = SD.Drawing2D.SmoothingMode.AntiAlias
-    Using grade As New SD.Pen(SD.Color.FromArgb(240, 236, 246), 1)
-        For x As Integer = CInt(origemX) To desenho.Width Step 50
+    Dim passoPx As Integer = CInt(PASSO_GRADE_MM * escala)
+    Using grade As New SD.Pen(SD.Color.FromArgb(226, 220, 240), 1)
+        For x As Integer = CInt(origemX) To desenho.Width Step passoPx
             g.DrawLine(grade, x, 0, x, desenho.Height)
         Next
-        For y As Integer = CInt(origemY) To 0 Step -50
+        For x As Integer = CInt(origemX) - passoPx To 0 Step -passoPx
+            g.DrawLine(grade, x, 0, x, desenho.Height)
+        Next
+        For y As Integer = CInt(origemY) To desenho.Height Step passoPx
+            g.DrawLine(grade, 0, y, desenho.Width, y)
+        Next
+        For y As Integer = CInt(origemY) - passoPx To 0 Step -passoPx
             g.DrawLine(grade, 0, y, desenho.Width, y)
         Next
     End Using
@@ -336,7 +363,7 @@ Sub DesenharPlanta(sender As Object, e As PaintEventArgs)
         End Using
     End If
     Using fonte As New SD.Font("Arial", 8)
-        g.DrawString("X+ →   Y+ ↑  |  unidade: mm", fonte, SD.Brushes.Gray, 12, 10)
+        g.DrawString("X+ →   Y+ ↑  |  malha: 500 mm", fonte, SD.Brushes.Gray, 12, 10)
     End Using
 End Sub
 

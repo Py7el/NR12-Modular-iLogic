@@ -4,7 +4,7 @@ Imports SD = System.Drawing
 Imports IO = System.IO
 
 ' NR12 Modular — prototipo do editor 2D para iLogic / Inventor 2024.
-' VERSAO TESTE V0.2 - manipuladores de eventos por lambdas tipadas.
+' VERSAO TESTE V0.3 - modulos, snap angular, fechamento e gerador 3D.
 ' Inspirado na composicao e paleta do Painel_parametros.vb do projeto original.
 ' Ainda nao gera montagem 3D nem valida requisitos normativos.
 
@@ -31,13 +31,18 @@ Private Class SegmentoNR
     Public Tipo As String = "Tela"
     Public Acesso As String = "Sem portao"
     Public Abertura As String = "Esquerda"
+    Public Modulo As String = "Sem janela"
+    Public Porta As String = "Porta simples"
 End Class
 
 Private janela As Form
 Private desenho As Panel
 Private comboTipo As ComboBox
-Private comboAcesso As ComboBox
 Private comboAbertura As ComboBox
+Private comboModulo As ComboBox
+Private comboPorta As ComboBox
+Private comboAngulo As ComboBox
+Private campoAngulo As NumericUpDown
 Private lblSelecionado As Label
 Private lblStatus As Label
 Private lista As New System.Collections.Generic.List(Of SegmentoNR)
@@ -60,7 +65,7 @@ Private origemY As Double = 500
 Sub CriarJanela()
     janela = New Form()
     janela.Text = "NR12 Modular | Editor de planta"
-    janela.ClientSize = New SD.Size(1110, 740)
+    janela.ClientSize = New SD.Size(1110, 790)
     janela.StartPosition = FormStartPosition.CenterScreen
     janela.FormBorderStyle = FormBorderStyle.FixedDialog
     janela.MaximizeBox = False
@@ -82,7 +87,7 @@ Sub CriarJanela()
     titulo.Size = New SD.Size(430, 36)
     cab.Controls.Add(titulo)
     Dim subtitulo As New Label()
-    subtitulo.Text = "01  PLANTA 2D     •     02  CONFIGURACAO     •     03  GERACAO 3D (futuro)"
+    subtitulo.Text = "01  PLANTA 2D     •     02  CONFIGURACAO     •     03  GERACAO 3D"
     subtitulo.ForeColor = SD.Color.FromArgb(203, 187, 233)
     subtitulo.Location = New SD.Point(28, 56)
     subtitulo.Size = New SD.Size(800, 19)
@@ -97,7 +102,7 @@ Sub CriarJanela()
 
     desenho = New Panel()
     desenho.Location = New SD.Point(25, 134)
-    desenho.Size = New SD.Size(770, 522)
+    desenho.Size = New SD.Size(770, 572)
     desenho.BackColor = SD.Color.White
     desenho.BorderStyle = BorderStyle.FixedSingle
     desenho.Cursor = Cursors.Cross
@@ -108,7 +113,7 @@ Sub CriarJanela()
 
     Dim lateral As New Panel()
     lateral.Location = New SD.Point(811, 134)
-    lateral.Size = New SD.Size(273, 522)
+    lateral.Size = New SD.Size(273, 572)
     lateral.BackColor = SD.Color.White
     lateral.BorderStyle = BorderStyle.FixedSingle
     janela.Controls.Add(lateral)
@@ -127,40 +132,58 @@ Sub CriarJanela()
     lblSelecionado.Size = New SD.Size(250, 35)
     lateral.Controls.Add(lblSelecionado)
 
-    AdicionarRotulo(lateral, "Tipo de painel", 96)
-    comboTipo = AdicionarCombo(lateral, 120, New String() {"Tela", "Chapa", "Policarbonato", "Vazio"})
-    AdicionarRotulo(lateral, "Acesso / portao", 163)
-    comboAcesso = AdicionarCombo(lateral, 187, New String() {"Sem portao", "Portao simples", "Portao duplo", "Portao deslizante"})
-    AdicionarRotulo(lateral, "Abertura", 230)
-    comboAbertura = AdicionarCombo(lateral, 254, New String() {"Esquerda", "Direita", "Para dentro", "Para fora"})
-
-    Dim aplicar As Button = CriarBotao(lateral, "Aplicar ao segmento", 15, 303, 240, 38, True)
+    AdicionarRotulo(lateral, "Modulo", 87)
+    comboModulo = AdicionarCombo(lateral, 108, New String() {"Sem janela", "Com janela", "Com porta"})
+    AdicionarRotulo(lateral, "Painel / fechamento", 142)
+    comboTipo = AdicionarCombo(lateral, 163, New String() {"Tela", "Chapa", "Policarbonato", "Vazio"})
+    AdicionarRotulo(lateral, "Tipo de porta", 197)
+    comboPorta = AdicionarCombo(lateral, 218, New String() {"Porta simples", "Porta dupla", "Porta deslizante"})
+    AdicionarRotulo(lateral, "Abertura", 252)
+    comboAbertura = AdicionarCombo(lateral, 273, New String() {"Esquerda", "Direita", "Para dentro", "Para fora"})
+    AdicionarRotulo(lateral, "Restricao do angulo", 306)
+    comboAngulo = AdicionarCombo(lateral, 327, New String() {"Passos de 90", "Passos de 45", "Livre", "Angulo informado"})
+    Dim lblValor As New Label()
+    lblValor.Text = "Grau:"
+    lblValor.Location = New SD.Point(15, 361)
+    lblValor.Size = New SD.Size(55, 20)
+    lateral.Controls.Add(lblValor)
+    campoAngulo = New NumericUpDown()
+    campoAngulo.Minimum = 0
+    campoAngulo.Maximum = 359
+    campoAngulo.Value = 90
+    campoAngulo.Location = New SD.Point(71, 358)
+    campoAngulo.Size = New SD.Size(82, 25)
+    lateral.Controls.Add(campoAngulo)
+    Dim aplicar As Button = CriarBotao(lateral, "Aplicar ao segmento", 15, 392, 240, 32, True)
     AddHandler aplicar.Click, Sub(s As Object, e As EventArgs) AplicarPropriedades(s, e)
-    Dim novo As Button = CriarBotao(lateral, "Novo trecho", 15, 354, 115, 36, False)
+    Dim novo As Button = CriarBotao(lateral, "Novo trecho", 15, 433, 113, 32, False)
     AddHandler novo.Click, Sub(s As Object, e As EventArgs) NovoTrecho(s, e)
-    Dim apagar As Button = CriarBotao(lateral, "Excluir", 140, 354, 115, 36, False)
+    Dim fechar As Button = CriarBotao(lateral, "Fechar cercado", 136, 433, 119, 32, False)
+    AddHandler fechar.Click, Sub(s As Object, e As EventArgs) FecharCercado(s, e)
+    Dim apagar As Button = CriarBotao(lateral, "Excluir selecionado", 15, 474, 240, 30, False)
     AddHandler apagar.Click, Sub(s As Object, e As EventArgs) ExcluirSegmento(s, e)
-
     Dim ajuda As New Label()
-    ajuda.Text = "AJUDA" & vbCrLf & vbCrLf & "Clique no vazio para desenhar." & vbCrLf & "Clique perto de uma linha para selecionar." & vbCrLf & "ESC encerra o trecho em desenho." & vbCrLf & "Delete exclui o segmento selecionado."
-    ajuda.Location = New SD.Point(15, 413)
-    ajuda.Size = New SD.Size(245, 104)
+    ajuda.Text = "AJUDA: clique para desenhar; perto da linha para selecionar. Fechar cercado conecta o ultimo ponto ao primeiro."
+    ajuda.Location = New SD.Point(15, 517)
+    ajuda.Size = New SD.Size(245, 55)
     ajuda.ForeColor = SD.Color.FromArgb(74, 69, 96)
     lateral.Controls.Add(ajuda)
 
     Dim rodape As New Panel()
-    rodape.Location = New SD.Point(0, 675)
+    rodape.Location = New SD.Point(0, 725)
     rodape.Size = New SD.Size(1110, 65)
     rodape.BackColor = SD.Color.White
     janela.Controls.Add(rodape)
 
+    Dim btn3D As Button = CriarBotao(rodape, "GERAR 3D", 664, 12, 139, 38, True)
+    AddHandler btn3D.Click, Sub(s As Object, e As EventArgs) GerarMontagem3D(s, e)
     Dim btnSalvar As Button = CriarBotao(rodape, "Salvar planta", 818, 12, 125, 38, True)
     AddHandler btnSalvar.Click, Sub(s As Object, e As EventArgs) AoClicarSalvarLayoutNR12(s, e)
     Dim btnCarregar As Button = CriarBotao(rodape, "Carregar", 965, 12, 118, 38, False)
     AddHandler btnCarregar.Click, Sub(s As Object, e As EventArgs) AoClicarCarregarLayoutNR12(s, e)
     lblStatus = New Label()
     lblStatus.Location = New SD.Point(25, 20)
-    lblStatus.Size = New SD.Size(775, 26)
+    lblStatus.Size = New SD.Size(620, 26)
     lblStatus.ForeColor = SD.Color.FromArgb(74, 69, 96)
     lblStatus.Text = "Pronto para desenhar. Escala: 100 px por metro."
     rodape.Controls.Add(lblStatus)
@@ -202,6 +225,24 @@ End Function
 
 Sub CliquePlanta(sender As Object, e As MouseEventArgs)
     If e.Button <> MouseButtons.Left Then Exit Sub
+    'Fechamento: ao clicar no primeiro ponto de um trecho em andamento, conecta ao inicio.
+    If temPonto Then
+        Dim primeiro As SegmentoNR = Nothing
+        For Each s As SegmentoNR In lista
+            If s.Grupo = grupoAtual Then
+                primeiro = s
+                Exit For
+            End If
+        Next
+        If primeiro IsNot Nothing Then
+            Dim sx As Double = origemX + primeiro.X1 * escala
+            Dim sy As Double = origemY - primeiro.Y1 * escala
+            If Math.Sqrt(Math.Pow(e.X - sx, 2) + Math.Pow(e.Y - sy, 2)) <= 12 Then
+                FecharCercado(Nothing, EventArgs.Empty)
+                Exit Sub
+            End If
+        End If
+    End If
     Dim idx As Integer = IndiceProximo(e.X, e.Y)
     If idx >= 0 Then
         selecionado = idx
@@ -212,11 +253,31 @@ Sub CliquePlanta(sender As Object, e As MouseEventArgs)
     Dim x As Double = Math.Round((e.X - origemX) / escala, 0)
     Dim y As Double = Math.Round((origemY - e.Y) / escala, 0)
     If temPonto Then
+        Dim dx As Double = x - ultimoX
+        Dim dy As Double = y - ultimoY
+        Dim comprimento As Double = Math.Sqrt(dx * dx + dy * dy)
+        If comprimento > 0.001 AndAlso CStr(comboAngulo.SelectedItem) <> "Livre" Then
+            Dim ang As Double = Math.Atan2(dy, dx)
+            Select Case CStr(comboAngulo.SelectedItem)
+                Case "Passos de 90"
+                    ang = Math.Round(ang / (Math.PI / 2), 0) * (Math.PI / 2)
+                Case "Passos de 45"
+                    ang = Math.Round(ang / (Math.PI / 4), 0) * (Math.PI / 4)
+                Case "Angulo informado"
+                    ang = CDbl(campoAngulo.Value) * Math.PI / 180.0
+            End Select
+            x = Math.Round(ultimoX + comprimento * Math.Cos(ang), 0)
+            y = Math.Round(ultimoY + comprimento * Math.Sin(ang), 0)
+        End If
         If Math.Abs(x - ultimoX) + Math.Abs(y - ultimoY) > 1 Then
             Dim s As New SegmentoNR()
             s.X1 = ultimoX : s.Y1 = ultimoY
             s.X2 = x : s.Y2 = y
             s.Grupo = grupoAtual
+            s.Modulo = CStr(comboModulo.SelectedItem)
+            s.Porta = CStr(comboPorta.SelectedItem)
+            s.Tipo = CStr(comboTipo.SelectedItem)
+            s.Abertura = CStr(comboAbertura.SelectedItem)
             lista.Add(s)
             selecionado = lista.Count - 1
             ExibirPropriedades()
@@ -260,7 +321,7 @@ Sub DesenharPlanta(sender As Object, e As PaintEventArgs)
     End Using
     For i As Integer = 0 To lista.Count - 1
         Dim s As SegmentoNR = lista(i)
-        Dim cor As SD.Color = If(i = selecionado, AMBAR, If(s.Acesso = "Sem portao", ROXO, SD.Color.FromArgb(46, 158, 91)))
+        Dim cor As SD.Color = If(i = selecionado, AMBAR, If(s.Modulo = "Com porta", SD.Color.FromArgb(46, 158, 91), If(s.Modulo = "Com janela", SD.Color.FromArgb(37, 145, 210), ROXO)))
         Using linha As New SD.Pen(cor, If(i = selecionado, 5.0F, 3.0F))
             g.DrawLine(linha, CSng(origemX + s.X1 * escala), CSng(origemY - s.Y1 * escala), CSng(origemX + s.X2 * escala), CSng(origemY - s.Y2 * escala))
         End Using
@@ -288,7 +349,8 @@ Sub ExibirPropriedades()
     Dim comprimento As Double = Math.Sqrt(Math.Pow(s.X2 - s.X1, 2) + Math.Pow(s.Y2 - s.Y1, 2))
     lblSelecionado.Text = "Segmento " & (selecionado + 1).ToString() & "  |  " & Math.Round(comprimento, 0).ToString() & " mm"
     comboTipo.SelectedItem = s.Tipo
-    comboAcesso.SelectedItem = s.Acesso
+    comboModulo.SelectedItem = s.Modulo
+    comboPorta.SelectedItem = s.Porta
     comboAbertura.SelectedItem = s.Abertura
 End Sub
 
@@ -299,7 +361,9 @@ Sub AplicarPropriedades(sender As Object, e As EventArgs)
     End If
     Dim s As SegmentoNR = lista(selecionado)
     s.Tipo = CStr(comboTipo.SelectedItem)
-    s.Acesso = CStr(comboAcesso.SelectedItem)
+    s.Modulo = CStr(comboModulo.SelectedItem)
+    s.Porta = CStr(comboPorta.SelectedItem)
+    s.Acesso = If(s.Modulo = "Com porta", s.Porta, "Sem portao")
     s.Abertura = CStr(comboAbertura.SelectedItem)
     lblStatus.Text = "Propriedades aplicadas ao segmento " & (selecionado + 1).ToString() & "."
     desenho.Invalidate()
@@ -312,6 +376,56 @@ Sub NovoTrecho(sender As Object, e As EventArgs)
     ExibirPropriedades()
     lblStatus.Text = "Novo trecho independente: clique no primeiro ponto."
     desenho.Invalidate()
+End Sub
+
+Sub FecharCercado(sender As Object, e As EventArgs)
+    If Not temPonto Then
+        MessageBox.Show("Inicie um trecho antes de fechar.", "NR12")
+        Exit Sub
+    End If
+    Dim primeiro As SegmentoNR = Nothing
+    For Each s As SegmentoNR In lista
+        If s.Grupo = grupoAtual Then
+            primeiro = s
+            Exit For
+        End If
+    Next
+    If primeiro Is Nothing Then
+        MessageBox.Show("Desenhe ao menos um segmento.", "NR12")
+        Exit Sub
+    End If
+    Dim distancia As Double = Math.Sqrt(Math.Pow(ultimoX - primeiro.X1, 2) + Math.Pow(ultimoY - primeiro.Y1, 2))
+    If distancia > 1 Then
+        Dim fechamento As New SegmentoNR()
+        fechamento.X1 = ultimoX : fechamento.Y1 = ultimoY
+        fechamento.X2 = primeiro.X1 : fechamento.Y2 = primeiro.Y1
+        fechamento.Grupo = grupoAtual
+        fechamento.Modulo = CStr(comboModulo.SelectedItem)
+        fechamento.Porta = CStr(comboPorta.SelectedItem)
+        fechamento.Tipo = CStr(comboTipo.SelectedItem)
+        lista.Add(fechamento)
+    End If
+    temPonto = False
+    grupoAtual += 1
+    selecionado = -1
+    ExibirPropriedades()
+    lblStatus.Text = "Cercado fechado. Clique para iniciar outro trecho."
+    desenho.Invalidate()
+End Sub
+
+Sub GerarMontagem3D(sender As Object, e As EventArgs)
+    If lista.Count = 0 Then
+        MessageBox.Show("Desenhe ao menos um segmento.", "NR12")
+        Exit Sub
+    End If
+    AoClicarSalvarLayoutNR12(Nothing, EventArgs.Empty)
+    If Not IO.File.Exists(arquivo) Then Exit Sub
+    Try
+        iLogicVb.RunRule("Gerar_3D_NR12")
+        lblStatus.Text = "Geracao 3D solicitada. Verifique a montagem."
+    Catch ex As Exception
+        MessageBox.Show("Crie a regra Gerar_3D_NR12 na mesma montagem." & vbCrLf & ex.Message, "NR12")
+    End Try
 End Sub
 
 Sub ExcluirSegmento(sender As Object, e As EventArgs)
@@ -334,10 +448,10 @@ End Sub
 Sub AoClicarSalvarLayoutNR12(sender As Object, e As EventArgs)
     Try
         Dim linhas As New System.Collections.Generic.List(Of String)
-        linhas.Add("# NR12-layout-v1; X1;Y1;X2;Y2;Grupo;Tipo;Acesso;Abertura")
+        linhas.Add("# NR12-layout-v2; X1;Y1;X2;Y2;Grupo;Tipo;Acesso;Abertura;Modulo;Porta")
         For Each s As SegmentoNR In lista
             Dim inv As System.Globalization.CultureInfo = System.Globalization.CultureInfo.InvariantCulture
-            linhas.Add(String.Join(";", New String() {s.X1.ToString(inv), s.Y1.ToString(inv), s.X2.ToString(inv), s.Y2.ToString(inv), s.Grupo.ToString(inv), s.Tipo, s.Acesso, s.Abertura}))
+            linhas.Add(String.Join(";", New String() {s.X1.ToString(inv), s.Y1.ToString(inv), s.X2.ToString(inv), s.Y2.ToString(inv), s.Grupo.ToString(inv), s.Tipo, s.Acesso, s.Abertura, s.Modulo, s.Porta}))
         Next
         IO.File.WriteAllLines(arquivo, linhas.ToArray(), System.Text.Encoding.UTF8)
         lblStatus.Text = "Layout salvo em " & arquivo
@@ -357,12 +471,17 @@ Sub AoClicarCarregarLayoutNR12(sender As Object, e As EventArgs)
         For Each linha As String In IO.File.ReadAllLines(arquivo, System.Text.Encoding.UTF8)
             If String.IsNullOrWhiteSpace(linha) OrElse linha.StartsWith("#") Then Continue For
             Dim p As String() = linha.Split(";"c)
-            If p.Length <> 8 Then Throw New Exception("Registro invalido: " & linha)
+            If p.Length <> 8 AndAlso p.Length <> 10 Then Throw New Exception("Registro invalido: " & linha)
             Dim s As New SegmentoNR()
             s.X1 = Double.Parse(p(0), inv) : s.Y1 = Double.Parse(p(1), inv)
             s.X2 = Double.Parse(p(2), inv) : s.Y2 = Double.Parse(p(3), inv)
             s.Grupo = Integer.Parse(p(4), inv)
             s.Tipo = p(5) : s.Acesso = p(6) : s.Abertura = p(7)
+            If p.Length = 10 Then
+                s.Modulo = p(8) : s.Porta = p(9)
+            ElseIf s.Acesso <> "Sem portao" Then
+                s.Modulo = "Com porta" : s.Porta = "Porta simples"
+            End If
             novos.Add(s)
         Next
         lista = novos

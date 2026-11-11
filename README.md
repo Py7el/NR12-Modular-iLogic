@@ -33,3 +33,13 @@ Configurador de cercamentos modulares NR-12, inspirado no fluxo de desenho de pl
 Refinar editor 2D → motor geométrico (subdivisão em módulos, cantos e portões) → biblioteca de peças industriais reais → dimensões e ferragens → lista de materiais.
 
 O atendimento à NR-12 exige análise de riscos e verificação específica da instalação. Este software não substitui a validação técnica.
+
+## Biblioteca recebida — 7 - NR12.zip
+
+O pacote CAD de referência contém uma montagem `.iam`, coluna-montante `.ipt`, base soldada `.iam`, tubo quadrado 50x50x2, chapas de base/fixação e pasta `OldVersions`. **Os arquivos CAD ainda não foram incorporados à geração.** Devem ser analisados no Inventor 2024 para confirmar referências e dimensões antes da reutilização.
+
+## Regra de vão máximo entre postes
+
+No gerador 3D, todo trecho sem porta maior que **2500 mm centro a centro** é subdividido em `Ceiling(comprimento/2500)` vãos iguais. Cada subdivisão cria um ponto de poste intermediário; os postes em coordenadas coincidentes são compartilhados. Trechos configurados como porta com comprimento maior que 2500 mm provocam aviso e não são gerados. A divisão ocorre no gerador e ainda não aparece como postes intermediários no editor 2D.
+
+Exemplos: 3000→2×1500 mm; 5000→2×2500 mm; 6000→3×2000 mm. Regra de projeto fornecida pelo usuário, sem implicar validação da NR-12.

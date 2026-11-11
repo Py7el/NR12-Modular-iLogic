@@ -4,7 +4,7 @@ Imports SD = System.Drawing
 Imports IO = System.IO
 
 ' NR12 Modular — prototipo do editor 2D para iLogic / Inventor 2024.
-' VERSAO TESTE V0.6 - permite inserir porta em trecho de contorno ja fechado.
+' VERSAO TESTE V0.7 - auto-carregar/salvar, conectar desenhos e porta com cotas exatas.
 ' A malha de 500 mm limita apenas novos cliques, nao a edicao de cotas.
 ' Inspirado na composicao e paleta do Painel_parametros.vb do projeto original.
 ' Ainda nao gera montagem 3D nem valida requisitos normativos.
@@ -20,6 +20,8 @@ Sub Main()
     End If
     arquivo = IO.Path.Combine(IO.Path.GetDirectoryName(ThisDoc.Document.FullFileName), "NR12_layout.txt")
     CriarJanela()
+    ' Recupera automaticamente o layout que pertence a esta montagem.
+    If IO.File.Exists(arquivo) Then CarregarLayoutNR12()
     janela.ShowDialog()
 End Sub
 
@@ -53,6 +55,10 @@ Private temPonto As Boolean = False
 Private ultimoX As Double
 Private ultimoY As Double
 Private arquivo As String = ""
+Private modoDesenho As Boolean = True
+Private botaoDesenhar As Button
+Private botaoSelecionar As Button
+Private carregamentoFalhou As Boolean = False
 Private ReadOnly ROXO As SD.Color = SD.Color.FromArgb(124, 42, 232)
 Private ReadOnly AMBAR As SD.Color = SD.Color.FromArgb(254, 197, 48)
 Private ReadOnly ESCURO As SD.Color = SD.Color.FromArgb(27, 16, 56)
@@ -74,6 +80,9 @@ Sub CriarJanela()
     janela.BackColor = FUNDO
     janela.Font = New SD.Font("Arial", 9)
     janela.KeyPreview = True
+    AddHandler janela.FormClosing, Sub(s As Object, e As FormClosingEventArgs)
+        If Not carregamentoFalhou Then SalvarLayoutNR12()
+    End Sub
     AddHandler janela.KeyDown, Sub(s As Object, e As KeyEventArgs) TeclaJanela(s, e)
 
     Dim cab As New Panel()
@@ -96,7 +105,7 @@ Sub CriarJanela()
     cab.Controls.Add(subtitulo)
 
     Dim textoAcao As New Label()
-    textoAcao.Text = "Grade 500 mm ao desenhar | cotas exatas: duplo clique na linha ou medida (mm)."
+    textoAcao.Text = "DESENHAR: clique num vertice ou linha para conectar | SELECIONAR: escolha propriedades e cotas."
     textoAcao.Location = New SD.Point(25, 104)
     textoAcao.Size = New SD.Size(760, 22)
     textoAcao.ForeColor = TEXTO
@@ -161,6 +170,11 @@ Sub CriarJanela()
     campoAngulo.Size = New SD.Size(82, 25)
     campoAngulo.Visible = False
     lateral.Controls.Add(campoAngulo)
+    botaoDesenhar = CriarBotao(lateral, "DESENHAR / LIGAR", 15, 351, 115, 34, True)
+    AddHandler botaoDesenhar.Click, Sub(s As Object, e As EventArgs) DefinirModo(True)
+    botaoSelecionar = CriarBotao(lateral, "SELECIONAR", 136, 351, 119, 34, False)
+    AddHandler botaoSelecionar.Click, Sub(s As Object, e As EventArgs) DefinirModo(False)
+    AtualizarBotoesModo()
     Dim aplicar As Button = CriarBotao(lateral, "Aplicar ao segmento", 15, 392, 240, 32, True)
     AddHandler aplicar.Click, Sub(s As Object, e As EventArgs) AplicarPropriedades(s, e)
     Dim novo As Button = CriarBotao(lateral, "Novo trecho", 15, 433, 113, 32, False)
@@ -172,7 +186,7 @@ Sub CriarJanela()
     Dim apagar As Button = CriarBotao(lateral, "Excluir selecionado", 15, 510, 240, 27, False)
     AddHandler apagar.Click, Sub(s As Object, e As EventArgs) ExcluirSegmento(s, e)
     Dim ajuda As New Label()
-    ajuda.Text = "Porta: selecione linha, escolha tipo/abertura e clique INSERIR. Informe largura e posicao em mm."
+    ajuda.Text = "Para porta: SELECIONAR > clique na linha > INSERIR PORTA. Informe largura e posicao. Auto-salvamento ativo."
     ajuda.Location = New SD.Point(15, 543)
     ajuda.Size = New SD.Size(245, 29)
     ajuda.ForeColor = SD.Color.FromArgb(74, 69, 96)
@@ -194,7 +208,7 @@ Sub CriarJanela()
     lblStatus.Location = New SD.Point(25, 20)
     lblStatus.Size = New SD.Size(620, 26)
     lblStatus.ForeColor = SD.Color.FromArgb(74, 69, 96)
-    lblStatus.Text = "Grade ativa: 500 mm (50 px). Clique nos cruzamentos."
+    lblStatus.Text = "Desenhar/ligar ativo. Layout recuperado automaticamente ao abrir."
     rodape.Controls.Add(lblStatus)
 End Sub
 
@@ -232,68 +246,150 @@ Function CriarBotao(pai As Control, titulo As String, x As Integer, y As Integer
     Return b
 End Function
 
-Sub CliquePlanta(sender As Object, e As MouseEventArgs)
-    If e.Button <> MouseButtons.Left Then Exit Sub
-    'Fechamento: ao clicar no primeiro ponto de um trecho em andamento, conecta ao inicio.
-    If temPonto Then
-        Dim primeiro As SegmentoNR = Nothing
-        For Each s As SegmentoNR In lista
-            If s.Grupo = grupoAtual Then
-                primeiro = s
-                Exit For
-            End If
-        Next
-        If primeiro IsNot Nothing Then
-            Dim sx As Double = origemX + primeiro.X1 * escala
-            Dim sy As Double = origemY - primeiro.Y1 * escala
-            If Math.Sqrt(Math.Pow(e.X - sx, 2) + Math.Pow(e.Y - sy, 2)) <= 12 Then
-                FecharCercado(Nothing, EventArgs.Empty)
-                Exit Sub
-            End If
+Sub DefinirModo(desenhar As Boolean)
+    modoDesenho = desenhar
+    temPonto = False
+    AtualizarBotoesModo()
+    lblStatus.Text = If(desenhar, "DESENHAR: clique num ponto ou numa linha existente para ligar.", _
+        "SELECIONAR: clique numa linha e depois edite as propriedades ou insira porta.")
+    desenho.Invalidate()
+End Sub
+
+Sub AtualizarBotoesModo()
+    If botaoDesenhar Is Nothing OrElse botaoSelecionar Is Nothing Then Exit Sub
+    botaoDesenhar.BackColor = If(modoDesenho, AMBAR, SD.Color.FromArgb(237, 227, 251))
+    botaoSelecionar.BackColor = If(modoDesenho, SD.Color.FromArgb(237, 227, 251), AMBAR)
+End Sub
+
+' Identifica pontas existentes mesmo quando suas coordenadas nao sao multiplas de 500.
+Function CapturarVerticeExistente(px As Integer, py As Integer, ByRef x As Double, ByRef y As Double) As Boolean
+    Dim melhor As Double = 13
+    Dim encontrou As Boolean = False
+    For Each s As SegmentoNR In lista
+        Dim d1 As Double = Math.Sqrt(Math.Pow(px - (origemX + s.X1 * escala), 2) + Math.Pow(py - (origemY - s.Y1 * escala), 2))
+        If d1 < melhor Then
+            melhor = d1 : x = s.X1 : y = s.Y1 : encontrou = True
         End If
-    End If
-    Dim idx As Integer = IndiceCota(e.X, e.Y)
-    If idx < 0 Then idx = IndiceProximo(e.X, e.Y)
-    If idx >= 0 Then
-        selecionado = idx
+        Dim d2 As Double = Math.Sqrt(Math.Pow(px - (origemX + s.X2 * escala), 2) + Math.Pow(py - (origemY - s.Y2 * escala), 2))
+        If d2 < melhor Then
+            melhor = d2 : x = s.X2 : y = s.Y2 : encontrou = True
+        End If
+    Next
+    Return encontrou
+End Function
+
+' Conectar em um trecho existente: cria um vertice e separa o painel antigo
+' em duas partes; o novo desenho pode comecar desse ponto.
+Function CapturarPontoEmTrecho(px As Integer, py As Integer, ByRef x As Double, ByRef y As Double) As Boolean
+    Dim idx As Integer = IndiceProximo(px, py)
+    If idx < 0 Then Return False
+    Dim anterior As SegmentoNR = lista(idx)
+    If anterior.Modulo = "Com porta" Then Return False
+    Dim ax As Double = origemX + anterior.X1 * escala
+    Dim ay As Double = origemY - anterior.Y1 * escala
+    Dim bx As Double = origemX + anterior.X2 * escala
+    Dim by As Double = origemY - anterior.Y2 * escala
+    Dim dx As Double = bx - ax, dy As Double = by - ay
+    Dim d2 As Double = dx * dx + dy * dy
+    If d2 < 0.001 Then Return False
+    Dim t As Double = Math.Max(0, Math.Min(1, ((px - ax) * dx + (py - ay) * dy) / d2))
+    If t < 0.001 OrElse t > 0.999 Then Return False
+    x = anterior.X1 + (anterior.X2 - anterior.X1) * t
+    y = anterior.Y1 + (anterior.Y2 - anterior.Y1) * t
+    Dim antesMM As Double = Math.Sqrt(Math.Pow(x - anterior.X1, 2) + Math.Pow(y - anterior.Y1, 2))
+    Dim depoisMM As Double = Math.Sqrt(Math.Pow(anterior.X2 - x, 2) + Math.Pow(anterior.Y2 - y, 2))
+    ' O gerador 3D exige 100 mm minimos por segmento.
+    If antesMM < 100 OrElse depoisMM < 100 Then Return False
+    Dim posterior As New SegmentoNR()
+    posterior.X1 = x : posterior.Y1 = y
+    posterior.X2 = anterior.X2 : posterior.Y2 = anterior.Y2
+    posterior.Grupo = anterior.Grupo : posterior.Tipo = anterior.Tipo
+    posterior.Acesso = anterior.Acesso : posterior.Abertura = anterior.Abertura
+    posterior.Modulo = anterior.Modulo : posterior.Porta = anterior.Porta
+    anterior.X2 = x : anterior.Y2 = y
+    lista.Insert(idx + 1, posterior)
+    Return True
+End Function
+
+Sub CliquePlanta(sender As Object, e As MouseEventArgs)
+    If e.Button <> MouseButtons.Left OrElse e.Clicks > 1 Then Exit Sub
+
+    If Not modoDesenho Then
+        Dim indice As Integer = IndiceCota(e.X, e.Y)
+        If indice < 0 Then indice = IndiceProximo(e.X, e.Y)
+        selecionado = indice
         ExibirPropriedades()
         desenho.Invalidate()
         Exit Sub
     End If
-    ' Snap permanente: TODOS os vertices devem pertencer a malha de 500 mm.
+
     Dim x As Double = ArredondarGrade((e.X - origemX) / escala)
     Dim y As Double = ArredondarGrade((origemY - e.Y) / escala)
-    If temPonto Then
-        Dim dx As Double = x - ultimoX
-        Dim dy As Double = y - ultimoY
-        Dim modo As String = CStr(comboAngulo.SelectedItem)
-        If modo = "Passos de 90" Then
-            ' Projeta no eixo mais proximo: horizontal ou vertical.
-            If Math.Abs(dx) >= Math.Abs(dy) Then
+    Dim bateuVertice As Boolean = CapturarVerticeExistente(e.X, e.Y, x, y)
+
+    ' 90 graus: manter a ortogonalidade durante o desenho, exceto quando o
+    ' destino e um vertice existente alinhado a origem.
+    If temPonto AndAlso CStr(comboAngulo.SelectedItem) = "Passos de 90" Then
+        If bateuVertice Then
+            If Math.Abs(x - ultimoX) > 0.01 AndAlso Math.Abs(y - ultimoY) > 0.01 Then
+                lblStatus.Text = "Vertice nao alinhado: use Livre para conectar em diagonal."
+                Exit Sub
+            End If
+        Else
+            If Math.Abs(x - ultimoX) >= Math.Abs(y - ultimoY) Then
                 y = ultimoY
             Else
                 x = ultimoX
             End If
-
         End If
-        If Math.Abs(x - ultimoX) + Math.Abs(y - ultimoY) > 1 Then
+    End If
+
+    ' Perto de um painel: ligar a ele e criar um no intermediario.
+    ' Este comportamento evita que o clique seja interpretado como selecao.
+    Dim foiSubdividido As Boolean = False
+    If Not bateuVertice Then
+        Dim snapX As Double = x, snapY As Double = y
+        If CapturarPontoEmTrecho(e.X, e.Y, snapX, snapY) Then
+            ' Em modo ortogonal so conectar a um ponto alinhado.
+            If Not temPonto OrElse CStr(comboAngulo.SelectedItem) = "Livre" OrElse _
+                Math.Abs(snapX - ultimoX) < 0.01 OrElse Math.Abs(snapY - ultimoY) < 0.01 Then
+                x = snapX : y = snapY : foiSubdividido = True
+            Else
+                ' Reverter a subdivisao nao e necessario: manter o no criado.
+                lblStatus.Text = "No criado na linha. Use modo Livre para ligar nesta direcao."
+                ultimoX = snapX : ultimoY = snapY : temPonto = True
+                SalvarLayoutNR12()
+                desenho.Invalidate()
+                Exit Sub
+            End If
+        End If
+    End If
+
+    If temPonto Then
+        Dim tamanho As Double = Math.Sqrt(Math.Pow(x - ultimoX, 2) + Math.Pow(y - ultimoY, 2))
+        If tamanho >= 100 Then
+            ' Permite fechar o proprio grupo ao tocar seu inicio, sem voltar a
+            ' selecionar o painel antigo.
             Dim s As New SegmentoNR()
             s.X1 = ultimoX : s.Y1 = ultimoY
             s.X2 = x : s.Y2 = y
             s.Grupo = grupoAtual
             s.Modulo = CStr(comboModulo.SelectedItem)
-            s.Porta = CStr(comboPorta.SelectedItem)
             s.Tipo = CStr(comboTipo.SelectedItem)
+            s.Porta = CStr(comboPorta.SelectedItem)
             s.Abertura = CStr(comboAbertura.SelectedItem)
             s.Acesso = If(s.Modulo = "Com porta", s.Porta, "Sem portao")
             lista.Add(s)
             selecionado = lista.Count - 1
             ExibirPropriedades()
+        ElseIf tamanho > 0.01 Then
+            lblStatus.Text = "Segmento inferior a 100 mm. Selecione outro ponto."
+            Exit Sub
         End If
     End If
-    ultimoX = x : ultimoY = y
-    temPonto = True
-    lblStatus.Text = "Ponto (" & x.ToString() & ", " & y.ToString() & ") mm. Trecho " & grupoAtual.ToString() & "."
+    ultimoX = x : ultimoY = y : temPonto = True
+    If foiSubdividido OrElse lista.Count > 0 Then SalvarLayoutNR12()
+    lblStatus.Text = "Ponto (" & x.ToString("0.##") & ", " & y.ToString("0.##") & ") mm. Clique para continuar ou ESC para novo trecho."
     desenho.Invalidate()
 End Sub
 
@@ -399,7 +495,8 @@ Sub AtualizarComprimentoExato(idx As Integer, novaMedida As Double)
         End If
     End If
     ExibirPropriedades()
-    lblStatus.Text = "Cota atualizada para " & novaMedida.ToString("0.###") & " mm. Pontos ligados ajustados."
+    SalvarLayoutNR12()
+    lblStatus.Text = "Cota atualizada e salva: " & novaMedida.ToString("0.###") & " mm."
     desenho.Invalidate()
 End Sub
 
@@ -549,8 +646,9 @@ End Sub
 Sub AtualizarCamposPorta()
     If comboModulo Is Nothing OrElse comboPorta Is Nothing OrElse comboAbertura Is Nothing Then Exit Sub
     Dim temPorta As Boolean = CStr(comboModulo.SelectedItem) = "Com porta"
-    comboPorta.Enabled = temPorta
-    comboAbertura.Enabled = temPorta
+    ' Os controles tambem servem para INSERIR uma porta em painel existente.
+    comboPorta.Enabled = True
+    comboAbertura.Enabled = True
 End Sub
 
 Sub AplicarPropriedades(sender As Object, e As EventArgs)
@@ -564,103 +662,164 @@ Sub AplicarPropriedades(sender As Object, e As EventArgs)
     s.Porta = CStr(comboPorta.SelectedItem)
     s.Acesso = If(s.Modulo = "Com porta", s.Porta, "Sem portao")
     s.Abertura = CStr(comboAbertura.SelectedItem)
-    lblStatus.Text = "Propriedades aplicadas ao segmento " & (selecionado + 1).ToString() & "."
+    SalvarLayoutNR12()
+    lblStatus.Text = "Propriedades aplicadas e salvas ao segmento " & (selecionado + 1).ToString() & "."
     desenho.Invalidate()
 End Sub
 
 
-' Insere uma porta num segmento existente, mesmo depois de Fechar cercado.
-' Subdivide o segmento em: painel anterior / abertura da porta / painel posterior.
-' Todos mantem o Grupo original, de modo que o contorno permanece continuo.
-Function LerMedidaPorta(titulo As String, sugestao As Double, ByRef valor As Double) As Boolean
-    Dim texto As String = Microsoft.VisualBasic.Interaction.InputBox( _
-        titulo, "NR12 Modular - inserir porta", _
-        sugestao.ToString("0.###", System.Globalization.CultureInfo.CurrentCulture))
-    If String.IsNullOrWhiteSpace(texto) Then Return False
-    texto = texto.Trim().Replace(" ", "")
-    Dim estilos As System.Globalization.NumberStyles = System.Globalization.NumberStyles.Float
-    If Double.TryParse(texto, estilos, System.Globalization.CultureInfo.CurrentCulture, valor) Then
-        Return Not (Double.IsNaN(valor) OrElse Double.IsInfinity(valor))
-    End If
-    Return Double.TryParse(texto.Replace(","c, "."c), estilos, System.Globalization.CultureInfo.InvariantCulture, valor)
-End Function
-
+' Porta com largura e posicao (distancia a partir do INICIO do segmento)
+' editaveis na mesma janela. Permite porta em segmento de perimetro fechado.
 Sub InserirPortaNoTrecho(sender As Object, e As EventArgs)
     If selecionado < 0 OrElse selecionado >= lista.Count Then
-        MessageBox.Show("Selecione primeiro uma linha do cercado, mesmo que o contorno ja esteja fechado.", "NR12")
+        MessageBox.Show("Clique SELECIONAR e escolha a linha do cercado antes de inserir a porta.", "NR12")
         Exit Sub
     End If
     Dim original As SegmentoNR = lista(selecionado)
     If original.Modulo = "Com porta" Then
-        MessageBox.Show("Este segmento ja e uma porta. Selecione um painel adjacente.", "NR12")
+        MessageBox.Show("Este trecho ja possui porta. Selecione outro painel.", "NR12")
         Exit Sub
     End If
     Dim dx As Double = original.X2 - original.X1
     Dim dy As Double = original.Y2 - original.Y1
     Dim comprimento As Double = Math.Sqrt(dx * dx + dy * dy)
-    If comprimento < 500 Then
-        MessageBox.Show("Trecho muito curto. E necessario ao menos 500 mm para inserir uma porta.", "NR12")
+    If comprimento < 300 Then
+        MessageBox.Show("O trecho precisa ter no minimo 300 mm para receber uma porta.", "NR12")
         Exit Sub
     End If
-    Dim largura As Double = Math.Min(1000, Math.Floor(comprimento - 200))
-    If Not LerMedidaPorta("Largura da porta (mm), entre 300 e 2500:", largura, largura) Then Exit Sub
-    If largura < 300 OrElse largura > 2500 Then
-        MessageBox.Show("A largura da porta deve estar entre 300 e 2500 mm.", "NR12")
-        Exit Sub
-    End If
-    If comprimento < largura + 200 Then
-        MessageBox.Show("Trecho insuficiente. Reserve no minimo 100 mm de painel em cada lado da porta.", "NR12")
-        Exit Sub
-    End If
+    Dim largura As Double = Math.Min(1000, Math.Min(2500, comprimento))
     Dim posicao As Double = (comprimento - largura) / 2
-    If Not LerMedidaPorta("Distancia do ponto INICIAL do segmento ate o inicio da porta (mm):" & vbCrLf & _
-        "Minimo 100; maximo " & (comprimento - largura - 100).ToString("0.###"), posicao, posicao) Then Exit Sub
-    If posicao < 100 OrElse posicao + largura > comprimento - 100 Then
-        MessageBox.Show("A porta deve manter pelo menos 100 mm entre ela e cada extremidade deste segmento.", "NR12")
+    Dim tipo As String = CStr(comboPorta.SelectedItem)
+    Dim sentido As String = CStr(comboAbertura.SelectedItem)
+
+    Using dialogo As New Form()
+        dialogo.Text = "Inserir porta no contorno"
+        dialogo.StartPosition = FormStartPosition.CenterParent
+        dialogo.FormBorderStyle = FormBorderStyle.FixedDialog
+        dialogo.MaximizeBox = False
+        dialogo.MinimizeBox = False
+        dialogo.ClientSize = New SD.Size(400, 255)
+        Dim informacao As New Label()
+        informacao.Text = "Trecho selecionado: " & comprimento.ToString("0.##") & " mm" & _
+            "  |  Porta entre dois postes"
+        informacao.Location = New SD.Point(16, 14) : informacao.Size = New SD.Size(365, 28)
+        dialogo.Controls.Add(informacao)
+        Dim rotL As New Label()
+        rotL.Text = "Largura do portao (mm):"
+        rotL.Location = New SD.Point(16, 52) : rotL.Size = New SD.Size(196, 22)
+        dialogo.Controls.Add(rotL)
+        Dim numL As New System.Windows.Forms.NumericUpDown()
+        numL.DecimalPlaces = 2
+        numL.Increment = 10D
+        numL.Minimum = 300D
+        numL.Maximum = CDec(Math.Min(2500, comprimento))
+        numL.Value = CDec(largura)
+        numL.Location = New SD.Point(217, 49) : numL.Size = New SD.Size(150, 27)
+        dialogo.Controls.Add(numL)
+        Dim rotP As New Label()
+        rotP.Text = "Distancia desde inicio (mm):"
+        rotP.Location = New SD.Point(16, 91) : rotP.Size = New SD.Size(195, 24)
+        dialogo.Controls.Add(rotP)
+        Dim numP As New System.Windows.Forms.NumericUpDown()
+        numP.DecimalPlaces = 2
+        numP.Increment = 10D
+        numP.Minimum = 0D
+        numP.Maximum = CDec(Math.Min(100000, comprimento))
+        numP.Value = CDec(posicao)
+        numP.Location = New SD.Point(217, 88) : numP.Size = New SD.Size(150, 27)
+        dialogo.Controls.Add(numP)
+        Dim rotT As New Label()
+        rotT.Text = "Tipo de porta:"
+        rotT.Location = New SD.Point(16, 131) : rotT.Size = New SD.Size(100, 21)
+        dialogo.Controls.Add(rotT)
+        Dim tipoPortaDlg As New System.Windows.Forms.ComboBox()
+        tipoPortaDlg.DropDownStyle = ComboBoxStyle.DropDownList
+        tipoPortaDlg.Items.AddRange(New Object() {"Porta simples", "Porta dupla", "Porta deslizante"})
+        tipoPortaDlg.SelectedItem = tipo
+        If tipoPortaDlg.SelectedIndex < 0 Then tipoPortaDlg.SelectedIndex = 0
+        tipoPortaDlg.Location = New SD.Point(115, 127) : tipoPortaDlg.Size = New SD.Size(252, 27)
+        dialogo.Controls.Add(tipoPortaDlg)
+        Dim rotS As New Label()
+        rotS.Text = "Abertura:"
+        rotS.Location = New SD.Point(16, 167) : rotS.Size = New SD.Size(90, 21)
+        dialogo.Controls.Add(rotS)
+        Dim sentidoDlg As New System.Windows.Forms.ComboBox()
+        sentidoDlg.DropDownStyle = ComboBoxStyle.DropDownList
+        sentidoDlg.Items.AddRange(New Object() {"Esquerda", "Direita", "Para dentro", "Para fora"})
+        sentidoDlg.SelectedItem = sentido
+        If sentidoDlg.SelectedIndex < 0 Then sentidoDlg.SelectedIndex = 0
+        sentidoDlg.Location = New SD.Point(115, 163) : sentidoDlg.Size = New SD.Size(252, 27)
+        dialogo.Controls.Add(sentidoDlg)
+        Dim confirmar As New Button()
+        confirmar.Text = "Inserir porta"
+        confirmar.Location = New SD.Point(164, 207) : confirmar.Size = New SD.Size(105, 33)
+        confirmar.DialogResult = DialogResult.OK
+        dialogo.Controls.Add(confirmar)
+        Dim cancelar As New Button()
+        cancelar.Text = "Cancelar"
+        cancelar.Location = New SD.Point(279, 207) : cancelar.Size = New SD.Size(90, 33)
+        cancelar.DialogResult = DialogResult.Cancel
+        dialogo.Controls.Add(cancelar)
+        dialogo.AcceptButton = confirmar : dialogo.CancelButton = cancelar
+        If dialogo.ShowDialog(janela) <> DialogResult.OK Then Exit Sub
+
+        largura = CDbl(numL.Value) : posicao = CDbl(numP.Value)
+        tipo = CStr(tipoPortaDlg.SelectedItem) : sentido = CStr(sentidoDlg.SelectedItem)
+    End Using
+
+    If posicao < 0 OrElse posicao + largura > comprimento + 0.01 Then
+        MessageBox.Show("Porta fora do segmento. Ajuste largura ou distancia desde inicio.", "NR12")
+        Exit Sub
+    End If
+    Dim restoAntes As Double = posicao
+    Dim restoDepois As Double = comprimento - (posicao + largura)
+    ' Não gerar sobras com menos de 100 mm: o 3D rejeita paineis menores.
+    If (restoAntes > 0.01 AndAlso restoAntes < 100) OrElse _
+       (restoDepois > 0.01 AndAlso restoDepois < 100) Then
+        MessageBox.Show("Os paineis adjacentes devem ter 0 ou pelo menos 100 mm.", "NR12")
         Exit Sub
     End If
 
     Dim ux As Double = dx / comprimento, uy As Double = dy / comprimento
-    Dim inicioX As Double = original.X1 + ux * posicao
-    Dim inicioY As Double = original.Y1 + uy * posicao
+    Dim iniX As Double = original.X1 + ux * posicao
+    Dim iniY As Double = original.Y1 + uy * posicao
     Dim fimX As Double = original.X1 + ux * (posicao + largura)
     Dim fimY As Double = original.Y1 + uy * (posicao + largura)
+
+    Dim pos As Integer = selecionado
+    lista.RemoveAt(pos)
     Dim antes As New SegmentoNR()
     antes.X1 = original.X1 : antes.Y1 = original.Y1
-    antes.X2 = inicioX : antes.Y2 = inicioY
-    antes.Grupo = original.Grupo
-    antes.Tipo = original.Tipo : antes.Modulo = original.Modulo
+    antes.X2 = iniX : antes.Y2 = iniY
+    antes.Grupo = original.Grupo : antes.Tipo = original.Tipo
+    antes.Modulo = original.Modulo : antes.Acesso = "Sem portao"
     antes.Porta = original.Porta : antes.Abertura = original.Abertura
-    antes.Acesso = "Sem portao"
+    If restoAntes >= 100 Then
+        lista.Insert(pos, antes) : pos += 1
+    End If
 
-    Dim portaNova As New SegmentoNR()
-    portaNova.X1 = inicioX : portaNova.Y1 = inicioY
-    portaNova.X2 = fimX : portaNova.Y2 = fimY
-    portaNova.Grupo = original.Grupo
-    portaNova.Tipo = original.Tipo
-    portaNova.Modulo = "Com porta"
-    portaNova.Porta = CStr(comboPorta.SelectedItem)
-    portaNova.Abertura = CStr(comboAbertura.SelectedItem)
-    portaNova.Acesso = portaNova.Porta
+    Dim porta As New SegmentoNR()
+    porta.X1 = iniX : porta.Y1 = iniY
+    porta.X2 = fimX : porta.Y2 = fimY
+    porta.Grupo = original.Grupo : porta.Tipo = original.Tipo
+    porta.Modulo = "Com porta" : porta.Acesso = tipo
+    porta.Porta = tipo : porta.Abertura = sentido
+    lista.Insert(pos, porta)
+    selecionado = pos : pos += 1
 
     Dim depois As New SegmentoNR()
     depois.X1 = fimX : depois.Y1 = fimY
     depois.X2 = original.X2 : depois.Y2 = original.Y2
-    depois.Grupo = original.Grupo
-    depois.Tipo = original.Tipo : depois.Modulo = original.Modulo
+    depois.Grupo = original.Grupo : depois.Tipo = original.Tipo
+    depois.Modulo = original.Modulo : depois.Acesso = "Sem portao"
     depois.Porta = original.Porta : depois.Abertura = original.Abertura
-    depois.Acesso = "Sem portao"
+    If restoDepois >= 100 Then lista.Insert(pos, depois)
 
-    Dim indiceOriginal As Integer = selecionado
-    lista.RemoveAt(indiceOriginal)
-    lista.Insert(indiceOriginal, antes)
-    lista.Insert(indiceOriginal + 1, portaNova)
-    lista.Insert(indiceOriginal + 2, depois)
-    selecionado = indiceOriginal + 1
     ExibirPropriedades()
+    SalvarLayoutNR12()
+    lblStatus.Text = "Porta: " & largura.ToString("0.##") & " mm; inicia em " & _
+        posicao.ToString("0.##") & " mm no trecho selecionado. Planta salva."
     desenho.Invalidate()
-    lblStatus.Text = "Porta de " & largura.ToString("0.###") & " mm inserida a " & _
-        posicao.ToString("0.###") & " mm do inicio. Contorno preservado."
 End Sub
 
 Sub NovoTrecho(sender As Object, e As EventArgs)
@@ -668,7 +827,8 @@ Sub NovoTrecho(sender As Object, e As EventArgs)
     grupoAtual += 1
     selecionado = -1
     ExibirPropriedades()
-    lblStatus.Text = "Novo trecho independente: clique no primeiro ponto."
+    SalvarLayoutNR12()
+    lblStatus.Text = "Novo trecho: clique num vertice existente para conectar ou no vazio para iniciar."
     desenho.Invalidate()
 End Sub
 
@@ -705,7 +865,8 @@ Sub FecharCercado(sender As Object, e As EventArgs)
     grupoAtual += 1
     selecionado = -1
     ExibirPropriedades()
-    lblStatus.Text = "Cercado fechado. Clique para iniciar outro trecho."
+    SalvarLayoutNR12()
+    lblStatus.Text = "Cercado fechado e salvo. Pode conectar outro cercado pelo modo DESENHAR."
     desenho.Invalidate()
 End Sub
 
@@ -728,6 +889,7 @@ Sub ExcluirSegmento(sender As Object, e As EventArgs)
         lista.RemoveAt(selecionado)
         selecionado = -1
         ExibirPropriedades()
+        SalvarLayoutNR12()
         desenho.Invalidate()
     End If
 End Sub
@@ -745,6 +907,10 @@ Sub AoClicarSalvarLayoutNR12(sender As Object, e As EventArgs)
 End Sub
 
 Function SalvarLayoutNR12() As Boolean
+    If carregamentoFalhou Then
+        MessageBox.Show("Layout anterior nao carregado. O arquivo original foi preservado.", "NR12")
+        Return False
+    End If
     Try
         ' Resolve a pasta sempre pela montagem em que a regra esta sendo executada.
         Dim caminhoMontagem As String = ThisDoc.Document.FullFileName
@@ -766,6 +932,10 @@ Function SalvarLayoutNR12() As Boolean
 End Function
 
 Sub AoClicarCarregarLayoutNR12(sender As Object, e As EventArgs)
+    CarregarLayoutNR12()
+End Sub
+
+Sub CarregarLayoutNR12()
     arquivo = IO.Path.Combine(IO.Path.GetDirectoryName(ThisDoc.Document.FullFileName), "NR12_layout.txt")
     If Not IO.File.Exists(arquivo) Then
         MessageBox.Show("Arquivo ainda nao existe: " & arquivo, "NR12 Modular")
@@ -791,6 +961,7 @@ Sub AoClicarCarregarLayoutNR12(sender As Object, e As EventArgs)
             novos.Add(s)
         Next
         lista = novos
+        carregamentoFalhou = False
         grupoAtual = 1
         For Each s As SegmentoNR In lista
             grupoAtual = Math.Max(grupoAtual, s.Grupo + 1)
@@ -799,8 +970,9 @@ Sub AoClicarCarregarLayoutNR12(sender As Object, e As EventArgs)
         selecionado = -1
         ExibirPropriedades()
         desenho.Invalidate()
-        lblStatus.Text = lista.Count.ToString() & " segmentos carregados."
+        lblStatus.Text = lista.Count.ToString() & " segmentos restaurados. Use DESENHAR para conectar e SELECIONAR para portas."
     Catch ex As Exception
-        MessageBox.Show(ex.Message, "Falha ao carregar")
+        carregamentoFalhou = True
+        MessageBox.Show("Nao foi possivel carregar o layout. Ele NAO sera sobrescrito:" & vbCrLf & ex.Message, "Falha ao carregar")
     End Try
 End Sub

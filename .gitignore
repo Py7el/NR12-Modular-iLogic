@@ -1,0 +1,10 @@
+# Inventor temporários / backups
+*.bak
+*.lck
+*.tmp
+~$*
+OldVersions/
+.ipj.user
+
+# Arquivos locais da planta, não versionados por padrão
+NR12_layout.txt

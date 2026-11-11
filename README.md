@@ -43,3 +43,20 @@ O pacote CAD de referência contém uma montagem `.iam`, coluna-montante `.ipt`,
 No gerador 3D, todo trecho sem porta maior que **2500 mm centro a centro** é subdividido em `Ceiling(comprimento/2500)` vãos iguais. Cada subdivisão cria um ponto de poste intermediário; os postes em coordenadas coincidentes são compartilhados. Trechos configurados como porta com comprimento maior que 2500 mm provocam aviso e não são gerados. A divisão ocorre no gerador e ainda não aparece como postes intermediários no editor 2D.
 
 Exemplos: 3000→2×1500 mm; 5000→2×2500 mm; 6000→3×2000 mm. Regra de projeto fornecida pelo usuário, sem implicar validação da NR-12.
+
+## Integracao com modelos CAD reais — etapa experimental
+
+O gerador `05_Gerador_3D/Gerar_3D_NR12.vb` agora insere como ocorrências **reais** de Inventor:
+
+- `7.1.2 - COLUNA-MONTANTE.ipt`
+- `7.1.3 - BASE SOLDADA PARA MONTANTE.iam`
+
+A base requer os dois arquivos `7.1.3.1 - CHAPA LISA 3-4x130x130 (BASE).ipt` e `7.1.3.2 - TUBO QUADRADO - 50 x 50 x 2  - 280mm.ipt`.
+
+**Instalação:** extraia o ZIP entregue `NR12_Modelos_Reais.zip` na pasta em que está salva a sua montagem principal, produzindo `NR12_Modelos/...`. Não renomeie os arquivos. No Inventor, se aparecer resolução de referências para a base soldada, aponte para os IPT na mesma pasta; depois salve a montagem base com as referências resolvidas. 
+
+**Limitação:** os modelos reais são inseridos por ocorrência e alinhados provisoriamente pelo centro XY da caixa envolvente e pelo Z mínimo. A origem e orientação dos modelos devem ser conferidas no Inventor 2024; o alinhamento por caixa não assegura coincidência de furação, chapa e perfil. A montagem principal original depende também de itens do Content Center que não acompanham o ZIP e **não** é usada diretamente.
+
+As placas, molduras de janela e folhas de porta continuam sendo sólidos provisórios gerados por iLogic. O gerador não transforma a folha em uma porta mecânica articulada. Nada foi testado no Inventor 2024 nem certificado como solução NR-12.
+
+**Cuidado ao regenerar:** ocorrências cujo nome começa com `NR12_` são apagadas e reinseridas pelo gerador. Faça os testes em uma cópia da montagem.

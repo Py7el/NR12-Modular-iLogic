@@ -4,7 +4,7 @@ Imports SD = System.Drawing
 Imports IO = System.IO
 
 ' NR12 Modular — prototipo do editor 2D para iLogic / Inventor 2024.
-' VERSAO TESTE V0.4.2 - entrada de cotas por InputBox, sem TextBox.
+' VERSAO TESTE V0.5 - portas representadas em planta; modo 45 removido.
 ' A malha de 500 mm limita apenas novos cliques, nao a edicao de cotas.
 ' Inspirado na composicao e paleta do Painel_parametros.vb do projeto original.
 ' Ainda nao gera montagem 3D nem valida requisitos normativos.
@@ -137,16 +137,19 @@ Sub CriarJanela()
 
     AdicionarRotulo(lateral, "Modulo", 87)
     comboModulo = AdicionarCombo(lateral, 108, New String() {"Sem janela", "Com janela", "Com porta"})
+    AddHandler comboModulo.SelectedIndexChanged, Sub(s As Object, e As EventArgs) AtualizarCamposPorta()
     AdicionarRotulo(lateral, "Painel / fechamento", 142)
     comboTipo = AdicionarCombo(lateral, 163, New String() {"Tela", "Chapa", "Policarbonato", "Vazio"})
     AdicionarRotulo(lateral, "Tipo de porta", 197)
     comboPorta = AdicionarCombo(lateral, 218, New String() {"Porta simples", "Porta dupla", "Porta deslizante"})
     AdicionarRotulo(lateral, "Abertura", 252)
     comboAbertura = AdicionarCombo(lateral, 273, New String() {"Esquerda", "Direita", "Para dentro", "Para fora"})
+    AtualizarCamposPorta()
     AdicionarRotulo(lateral, "Restricao do angulo", 306)
-    comboAngulo = AdicionarCombo(lateral, 327, New String() {"Passos de 90", "Passos de 45", "Livre", "Angulo informado"})
+    comboAngulo = AdicionarCombo(lateral, 327, New String() {"Passos de 90", "Livre"})
     Dim lblValor As New Label()
     lblValor.Text = "Grau:"
+    lblValor.Visible = False
     lblValor.Location = New SD.Point(15, 361)
     lblValor.Size = New SD.Size(55, 20)
     lateral.Controls.Add(lblValor)
@@ -156,6 +159,7 @@ Sub CriarJanela()
     campoAngulo.Value = 90
     campoAngulo.Location = New SD.Point(71, 358)
     campoAngulo.Size = New SD.Size(82, 25)
+    campoAngulo.Visible = False
     lateral.Controls.Add(campoAngulo)
     Dim aplicar As Button = CriarBotao(lateral, "Aplicar ao segmento", 15, 392, 240, 32, True)
     AddHandler aplicar.Click, Sub(s As Object, e As EventArgs) AplicarPropriedades(s, e)
@@ -166,7 +170,7 @@ Sub CriarJanela()
     Dim apagar As Button = CriarBotao(lateral, "Excluir selecionado", 15, 474, 240, 30, False)
     AddHandler apagar.Click, Sub(s As Object, e As EventArgs) ExcluirSegmento(s, e)
     Dim ajuda As New Label()
-    ajuda.Text = "AJUDA: clique na linha para selecionar. Duplo clique na linha ou cota para editar em mm. Fechar cercado une o ultimo ponto ao primeiro."
+    ajuda.Text = "AJUDA: selecione um segmento, escolha Com porta e clique Aplicar. Duplo clique na cota para editar. Desenho: 90 graus ou livre."
     ajuda.Location = New SD.Point(15, 517)
     ajuda.Size = New SD.Size(245, 55)
     ajuda.ForeColor = SD.Color.FromArgb(74, 69, 96)
@@ -268,24 +272,7 @@ Sub CliquePlanta(sender As Object, e As MouseEventArgs)
             Else
                 x = ultimoX
             End If
-        ElseIf modo = "Passos de 45" Then
-            ' 8 direcoes discretas: 0,45,90,135,180,225,270,315.
-            Dim ang As Double = Math.Round(Math.Atan2(dy, dx) / (Math.PI / 4), 0) * (Math.PI / 4)
-            If Math.Abs(Math.Cos(ang)) > 0.9 Then
-                y = ultimoY
-            ElseIf Math.Abs(Math.Sin(ang)) > 0.9 Then
-                x = ultimoX
-            Else
-                Dim passos As Double = Math.Round(Math.Max(Math.Abs(dx), Math.Abs(dy)) / PASSO_GRADE_MM, 0)
-                x = ultimoX + Math.Sign(Math.Cos(ang)) * passos * PASSO_GRADE_MM
-                y = ultimoY + Math.Sign(Math.Sin(ang)) * passos * PASSO_GRADE_MM
-            End If
-        ElseIf modo = "Angulo informado" Then
-            ' Angulos arbitrarios sao aproximados ao no de grade mais proximo.
-            Dim comprimento As Double = Math.Sqrt(dx * dx + dy * dy)
-            Dim ang As Double = CDbl(campoAngulo.Value) * Math.PI / 180.0
-            x = ArredondarGrade(ultimoX + comprimento * Math.Cos(ang))
-            y = ArredondarGrade(ultimoY + comprimento * Math.Sin(ang))
+
         End If
         If Math.Abs(x - ultimoX) + Math.Abs(y - ultimoY) > 1 Then
             Dim s As New SegmentoNR()
@@ -296,6 +283,7 @@ Sub CliquePlanta(sender As Object, e As MouseEventArgs)
             s.Porta = CStr(comboPorta.SelectedItem)
             s.Tipo = CStr(comboTipo.SelectedItem)
             s.Abertura = CStr(comboAbertura.SelectedItem)
+            s.Acesso = If(s.Modulo = "Com porta", s.Porta, "Sem portao")
             lista.Add(s)
             selecionado = lista.Count - 1
             ExibirPropriedades()
@@ -413,6 +401,63 @@ Sub AtualizarComprimentoExato(idx As Integer, novaMedida As Double)
     desenho.Invalidate()
 End Sub
 
+
+' Convencao grafica de planta: a linha do vao NAO recebe painel continuo.
+Sub DesenharSimboloPorta(g As SD.Graphics, s As SegmentoNR, cor As SD.Color)
+    Dim x1 As Single = CSng(origemX + s.X1 * escala)
+    Dim y1 As Single = CSng(origemY - s.Y1 * escala)
+    Dim x2 As Single = CSng(origemX + s.X2 * escala)
+    Dim y2 As Single = CSng(origemY - s.Y2 * escala)
+    Dim dx As Double = x2 - x1, dy As Double = y2 - y1
+    Dim tam As Double = Math.Sqrt(dx * dx + dy * dy)
+    If tam < 1 Then Exit Sub
+    Dim ux As Double = dx / tam, uy As Double = dy / tam
+    Dim lado As Double = If(s.Abertura = "Para dentro" OrElse s.Abertura = "Direita", -1.0, 1.0)
+    Dim nx As Double = -uy * lado, ny As Double = ux * lado
+    Using caneta As New SD.Pen(cor, 2.7F)
+        ' Pontos de apoio ao redor do vao.
+        g.DrawLine(caneta, CSng(x1 - nx * 5), CSng(y1 - ny * 5), CSng(x1 + nx * 5), CSng(y1 + ny * 5))
+        g.DrawLine(caneta, CSng(x2 - nx * 5), CSng(y2 - ny * 5), CSng(x2 + nx * 5), CSng(y2 + ny * 5))
+        If s.Porta = "Porta dupla" Then
+            Dim meioX As Double = (x1 + x2) / 2, meioY As Double = (y1 + y2) / 2
+            Dim raio As Double = tam / 2
+            g.DrawLine(caneta, x1, y1, CSng(x1 + nx * raio), CSng(y1 + ny * raio))
+            g.DrawLine(caneta, x2, y2, CSng(x2 + nx * raio), CSng(y2 + ny * raio))
+            g.DrawLine(SD.Pens.Gray, CSng(meioX - 4), CSng(meioY - 4), CSng(meioX + 4), CSng(meioY + 4))
+        ElseIf s.Porta = "Porta deslizante" Then
+            g.DrawLine(caneta, x1, y1, x2, y2)
+            g.DrawLine(caneta, CSng(x1 + nx * 9), CSng(y1 + ny * 9), CSng(x2 + nx * 9), CSng(y2 + ny * 9))
+            Dim mx As Double = (x1 + x2) / 2, my As Double = (y1 + y2) / 2
+            g.DrawLine(caneta, CSng(mx - ux * 9 + nx * 9), CSng(my - uy * 9 + ny * 9), CSng(mx + ux * 9 + nx * 9), CSng(my + uy * 9 + ny * 9))
+        Else
+            Dim direita As Boolean = s.Abertura = "Direita"
+            Dim hx As Double = If(direita, x2, x1), hy As Double = If(direita, y2, y1)
+            Dim pontaX As Double = hx + nx * tam, pontaY As Double = hy + ny * tam
+            g.DrawLine(caneta, CSng(hx), CSng(hy), CSng(pontaX), CSng(pontaY))
+            ' Traço de abertura 90 graus, pontilhado.
+            Using tracejado As New SD.Pen(SD.Color.FromArgb(130, cor), 1)
+                tracejado.DashStyle = SD.Drawing2D.DashStyle.Dash
+                g.DrawLine(tracejado, CSng(pontaX), CSng(pontaY), CSng(If(direita, x1, x2)), CSng(If(direita, y1, y2)))
+            End Using
+        End If
+    End Using
+End Sub
+
+Sub DesenharSimboloJanela(g As SD.Graphics, s As SegmentoNR, cor As SD.Color)
+    Dim x1 As Single = CSng(origemX + s.X1 * escala)
+    Dim y1 As Single = CSng(origemY - s.Y1 * escala)
+    Dim x2 As Single = CSng(origemX + s.X2 * escala)
+    Dim y2 As Single = CSng(origemY - s.Y2 * escala)
+    Dim dx As Double = x2 - x1, dy As Double = y2 - y1
+    Dim tam As Double = Math.Sqrt(dx * dx + dy * dy)
+    If tam < 1 Then Exit Sub
+    Dim nx As Double = -dy / tam * 5, ny As Double = dx / tam * 5
+    Using caneta As New SD.Pen(cor, 2)
+        g.DrawLine(caneta, CSng(x1 + nx), CSng(y1 + ny), CSng(x2 + nx), CSng(y2 + ny))
+        g.DrawLine(caneta, CSng(x1 - nx), CSng(y1 - ny), CSng(x2 - nx), CSng(y2 - ny))
+    End Using
+End Sub
+
 Sub DesenharPlanta(sender As Object, e As PaintEventArgs)
     Dim g As SD.Graphics = e.Graphics
     g.SmoothingMode = SD.Drawing2D.SmoothingMode.AntiAlias
@@ -434,9 +479,15 @@ Sub DesenharPlanta(sender As Object, e As PaintEventArgs)
     For i As Integer = 0 To lista.Count - 1
         Dim s As SegmentoNR = lista(i)
         Dim cor As SD.Color = If(i = selecionado, AMBAR, If(s.Modulo = "Com porta", SD.Color.FromArgb(46, 158, 91), If(s.Modulo = "Com janela", SD.Color.FromArgb(37, 145, 210), ROXO)))
-        Using linha As New SD.Pen(cor, If(i = selecionado, 5.0F, 3.0F))
-            g.DrawLine(linha, CSng(origemX + s.X1 * escala), CSng(origemY - s.Y1 * escala), CSng(origemX + s.X2 * escala), CSng(origemY - s.Y2 * escala))
-        End Using
+        If s.Modulo = "Com porta" Then
+            DesenharSimboloPorta(g, s, cor)
+        ElseIf s.Modulo = "Com janela" Then
+            DesenharSimboloJanela(g, s, cor)
+        Else
+            Using linha As New SD.Pen(cor, If(i = selecionado, 5.0F, 3.0F))
+                g.DrawLine(linha, CSng(origemX + s.X1 * escala), CSng(origemY - s.Y1 * escala), CSng(origemX + s.X2 * escala), CSng(origemY - s.Y2 * escala))
+            End Using
+        End If
         ' Cota sempre exibida, ligeiramente afastada do eixo do segmento.
         Dim ex As Double = origemX + s.X1 * escala
         Dim ey As Double = origemY - s.Y1 * escala
@@ -488,6 +539,14 @@ Sub ExibirPropriedades()
     comboModulo.SelectedItem = s.Modulo
     comboPorta.SelectedItem = s.Porta
     comboAbertura.SelectedItem = s.Abertura
+    AtualizarCamposPorta()
+End Sub
+
+Sub AtualizarCamposPorta()
+    If comboModulo Is Nothing OrElse comboPorta Is Nothing OrElse comboAbertura Is Nothing Then Exit Sub
+    Dim temPorta As Boolean = CStr(comboModulo.SelectedItem) = "Com porta"
+    comboPorta.Enabled = temPorta
+    comboAbertura.Enabled = temPorta
 End Sub
 
 Sub AplicarPropriedades(sender As Object, e As EventArgs)
@@ -539,6 +598,8 @@ Sub FecharCercado(sender As Object, e As EventArgs)
         fechamento.Modulo = CStr(comboModulo.SelectedItem)
         fechamento.Porta = CStr(comboPorta.SelectedItem)
         fechamento.Tipo = CStr(comboTipo.SelectedItem)
+        fechamento.Abertura = CStr(comboAbertura.SelectedItem)
+        fechamento.Acesso = If(fechamento.Modulo = "Com porta", fechamento.Porta, "Sem portao")
         lista.Add(fechamento)
     End If
     temPonto = False

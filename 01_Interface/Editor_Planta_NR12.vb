@@ -154,9 +154,9 @@ Sub CriarJanela()
     janela.Controls.Add(rodape)
 
     Dim btnSalvar As Button = CriarBotao(rodape, "Salvar planta", 818, 12, 125, 38, True)
-    AddHandler btnSalvar.Click, AddressOf Salvar
+    AddHandler btnSalvar.Click, AddressOf AoClicarSalvarLayoutNR12
     Dim btnCarregar As Button = CriarBotao(rodape, "Carregar", 965, 12, 118, 38, False)
-    AddHandler btnCarregar.Click, AddressOf Carregar
+    AddHandler btnCarregar.Click, AddressOf AoClicarCarregarLayoutNR12
     lblStatus = New Label()
     lblStatus.Location = New SD.Point(25, 20)
     lblStatus.Size = New SD.Size(775, 26)
@@ -330,7 +330,7 @@ Sub TeclaJanela(sender As Object, e As KeyEventArgs)
     End If
 End Sub
 
-Sub Salvar(sender As Object, e As EventArgs)
+Sub AoClicarSalvarLayoutNR12(sender As Object, e As EventArgs)
     Try
         Dim linhas As New System.Collections.Generic.List(Of String)
         linhas.Add("# NR12-layout-v1; X1;Y1;X2;Y2;Grupo;Tipo;Acesso;Abertura")
@@ -345,7 +345,7 @@ Sub Salvar(sender As Object, e As EventArgs)
     End Try
 End Sub
 
-Sub Carregar(sender As Object, e As EventArgs)
+Sub AoClicarCarregarLayoutNR12(sender As Object, e As EventArgs)
     If Not IO.File.Exists(arquivo) Then
         MessageBox.Show("Arquivo ainda nao existe: " & arquivo, "NR12 Modular")
         Exit Sub

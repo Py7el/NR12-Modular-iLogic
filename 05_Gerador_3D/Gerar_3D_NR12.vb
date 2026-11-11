@@ -3,7 +3,7 @@ Imports CI = System.Globalization.CultureInfo
 Imports IV = Inventor
 
 ' NR12 Modular - gerador 3D preliminar, Inventor 2024.
-' VERSAO 0.5.2 - permite selecionar NR12_layout.txt quando nao esta ao lado da montagem.
+' VERSAO 0.6 - orientacao automatica de montantes e bases e folhas de porta abertas.
 ' Subdivisao automatica max. 2500 mm entre eixos de postes.
 ' Montantes e bases inseridos a partir da biblioteca CAD real fornecida.
 ' Criar como regra iLogic separada: Gerar_3D_NR12
@@ -172,25 +172,33 @@ Sub Main()
             Inserir(ocorr, travessa, MatrizPainel(trans, x1 + ux * 80, y1 + uy * 80, ux, uy, 1950), "NR12_JANELA_T" & qtd.ToString())
             qtd += 1
         ElseIf modulo = "Com porta" Then
-            ' Porta na montagem: folha independente do painel; com tipologia preservada.
+            ' Porta representada VISUALMENTE ABERTA a 60 graus para ser diferenciada dos paineis.
+            ' O movimento e estatico; nao inclui dobradicas, batentes ou juntas.
             Dim tipoPorta As String = If(p.Length = 10, p(9), "Porta simples")
             Dim abertura As String = p(7)
+            Dim direito As Boolean = abertura.IndexOf("Direita", StringComparison.OrdinalIgnoreCase) >= 0
+            Dim paraDentro As Boolean = abertura.IndexOf("dentro", StringComparison.OrdinalIgnoreCase) >= 0
+            Dim sinal As Double = If(paraDentro, -1.0, 1.0)
             If tipoPorta = "Porta dupla" Then
                 Dim meiaLargura As Double = (largura - 80) / 2
                 Dim caminho As String = ObterCaixa(dirPecas, geradas, "FolhaPortaDupla", meiaLargura, alturaMM - 100, 40)
-                Inserir(ocorr, caminho, MatrizPainel(trans, xInicial, yInicial, ux, uy, 50), "NR12_PORTA_DUPLA_A_" & qtd.ToString())
+                Inserir(ocorr, caminho, MatrizPortaAberta(trans, xInicial, yInicial, ux, uy, 50, sinal * 60), "NR12_PORTA_DUPLA_A_" & qtd.ToString())
                 qtd += 1
-                Inserir(ocorr, caminho, MatrizPainel(trans, x2 - ux * (30 + meiaLargura), y2 - uy * (30 + meiaLargura), ux, uy, 50), "NR12_PORTA_DUPLA_B_" & qtd.ToString())
+                Inserir(ocorr, caminho, MatrizPortaAberta(trans, x2 - ux * 30, y2 - uy * 30, -ux, -uy, 50, -sinal * 60), "NR12_PORTA_DUPLA_B_" & qtd.ToString())
                 qtd += 1
             ElseIf tipoPorta = "Porta deslizante" Then
                 Dim caminho As String = ObterCaixa(dirPecas, geradas, "FolhaPorta", larguraUtil, alturaMM - 100, 40)
-                ' Folha deslocada transversalmente 100mm para identificar trilho de correr.
-                Dim lado As Double = If(abertura = "Para dentro" OrElse abertura = "Direita", -1.0, 1.0)
-                Inserir(ocorr, caminho, MatrizPainel(trans, xInicial - uy * 100 * lado, yInicial + ux * 100 * lado, ux, uy, 50), "NR12_PORTA_DESLIZANTE_" & qtd.ToString())
+                ' Simula a porta deslizada 40% para facilitar leitura visual; sem trilho mecanico.
+                Dim deslocamento As Double = larguraUtil * 0.4
+                Inserir(ocorr, caminho, MatrizPainel(trans, xInicial + ux * deslocamento - uy * 100 * sinal, yInicial + uy * deslocamento + ux * 100 * sinal, ux, uy, 50), "NR12_PORTA_DESLIZANTE_" & qtd.ToString())
                 qtd += 1
             Else
                 Dim caminho As String = ObterCaixa(dirPecas, geradas, "FolhaPorta", larguraUtil, alturaMM - 100, 40)
-                Inserir(ocorr, caminho, MatrizPainel(trans, xInicial, yInicial, ux, uy, 50), "NR12_PORTA_SIMPLES_" & qtd.ToString())
+                If direito Then
+                    Inserir(ocorr, caminho, MatrizPortaAberta(trans, x2 - ux * 30, y2 - uy * 30, -ux, -uy, 50, -sinal * 60), "NR12_PORTA_SIMPLES_DIREITA_" & qtd.ToString())
+                Else
+                    Inserir(ocorr, caminho, MatrizPortaAberta(trans, xInicial, yInicial, ux, uy, 50, sinal * 60), "NR12_PORTA_SIMPLES_ESQUERDA_" & qtd.ToString())
+                End If
                 qtd += 1
             End If
         ElseIf Not vazio Then
@@ -205,19 +213,36 @@ Sub Main()
                     "Geometria de estudo: nao representa conformidade NR-12.", "NR12 Modular")
 End Sub
 
-' Alinha pelo centro XY da caixa envolvente, apoiando Z minimo no plano Z=0.
-' Essa referencia de posicionamento deve ser validada frente a origem geometrica real do IPT/IAM.
+' Insere modelos reais e coloca o eixo mais longo de cada arquivo na vertical (Z).
+' A orientacao continua aproximada: centro da caixa envolvente e Z inferior em zero.
+' O usuario deve confirmar face da base e furo de ancoragem no Inventor.
 Sub InserirModeloReal(ocorr As IV.ComponentOccurrences, caminho As String, x As Double, y As Double, tg As IV.TransientGeometry, nome As String)
-    Dim m As IV.Matrix = tg.CreateMatrix()
-    Dim o As IV.ComponentOccurrence = ocorr.Add(caminho, m)
+    Dim identidade As IV.Matrix = tg.CreateMatrix()
+    Dim o As IV.ComponentOccurrence = ocorr.Add(caminho, identidade)
     o.Name = nome
-    Dim caixa As IV.Box = o.RangeBox
-    Dim centroX As Double = (caixa.MinPoint.X + caixa.MaxPoint.X) / 2
-    Dim centroY As Double = (caixa.MinPoint.Y + caixa.MaxPoint.Y) / 2
-    Dim minimoZ As Double = caixa.MinPoint.Z
-    Dim novaMatriz As IV.Matrix = o.Transformation
-    novaMatriz.SetTranslation(tg.CreateVector(x / 10 - centroX, y / 10 - centroY, -minimoZ))
-    o.Transformation = novaMatriz
+
+    Dim caixaLocal As IV.Box = o.RangeBox
+    Dim tamanhoX As Double = caixaLocal.MaxPoint.X - caixaLocal.MinPoint.X
+    Dim tamanhoY As Double = caixaLocal.MaxPoint.Y - caixaLocal.MinPoint.Y
+    Dim tamanhoZ As Double = caixaLocal.MaxPoint.Z - caixaLocal.MinPoint.Z
+    Dim rotacao As IV.Matrix = tg.CreateMatrix()
+    Dim origem As IV.Point = tg.CreatePoint(0, 0, 0)
+    If tamanhoX >= tamanhoY AndAlso tamanhoX > tamanhoZ Then
+        ' Eixo X do componente vira Z positivo.
+        rotacao.SetToRotation(-Math.PI / 2, tg.CreateVector(0, 1, 0), origem)
+    ElseIf tamanhoY > tamanhoX AndAlso tamanhoY > tamanhoZ Then
+        ' Eixo Y do componente vira Z positivo.
+        rotacao.SetToRotation(Math.PI / 2, tg.CreateVector(1, 0, 0), origem)
+    End If
+    o.Transformation = rotacao
+
+    ' Apos rotacionar, recalcula a caixa em coordenadas da montagem.
+    Dim caixaVertical As IV.Box = o.RangeBox
+    Dim centroX As Double = (caixaVertical.MinPoint.X + caixaVertical.MaxPoint.X) / 2
+    Dim centroY As Double = (caixaVertical.MinPoint.Y + caixaVertical.MaxPoint.Y) / 2
+    Dim minimoZ As Double = caixaVertical.MinPoint.Z
+    rotacao.SetTranslation(tg.CreateVector(x / 10 - centroX, y / 10 - centroY, -minimoZ), False)
+    o.Transformation = rotacao
 End Sub
 
 Sub CriarPosteSeNovo(pontos As System.Collections.Generic.Dictionary(Of String, Boolean), ocorr As IV.ComponentOccurrences, coluna As String, base As String, x As Double, y As Double, tg As IV.TransientGeometry, ByRef contador As Integer)
@@ -229,6 +254,14 @@ Sub CriarPosteSeNovo(pontos As System.Collections.Generic.Dictionary(Of String, 
     InserirModeloReal(ocorr, base, x, y, tg, "NR12_BASE_REAL_" & contador.ToString())
     contador += 1
 End Sub
+
+' Rotaciona a folha em planta ao redor do seu ponto de dobradica para mostrá-la aberta.
+Function MatrizPortaAberta(tg As IV.TransientGeometry, xMM As Double, yMM As Double, ux As Double, uy As Double, zMM As Double, anguloGrau As Double) As IV.Matrix
+    Dim rad As Double = anguloGrau * Math.PI / 180.0
+    Dim uxAberto As Double = ux * Math.Cos(rad) - uy * Math.Sin(rad)
+    Dim uyAberto As Double = ux * Math.Sin(rad) + uy * Math.Cos(rad)
+    Return MatrizPainel(tg, xMM, yMM, uxAberto, uyAberto, zMM)
+End Function
 
 Function MatrizPainel(tg As IV.TransientGeometry, xMM As Double, yMM As Double, ux As Double, uy As Double, zMM As Double) As IV.Matrix
     Dim m As IV.Matrix = tg.CreateMatrix()

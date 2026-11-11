@@ -4,6 +4,7 @@ Imports SD = System.Drawing
 Imports IO = System.IO
 
 ' NR12 Modular — prototipo do editor 2D para iLogic / Inventor 2024.
+' VERSAO TESTE V0.2 - manipuladores de eventos por lambdas tipadas.
 ' Inspirado na composicao e paleta do Painel_parametros.vb do projeto original.
 ' Ainda nao gera montagem 3D nem valida requisitos normativos.
 
@@ -66,7 +67,7 @@ Sub CriarJanela()
     janela.BackColor = FUNDO
     janela.Font = New SD.Font("Arial", 9)
     janela.KeyPreview = True
-    AddHandler janela.KeyDown, AddressOf TeclaJanela
+    AddHandler janela.KeyDown, Sub(s As Object, e As KeyEventArgs) TeclaJanela(s, e)
 
     Dim cab As New Panel()
     cab.Location = New SD.Point(0, 0)
@@ -101,8 +102,8 @@ Sub CriarJanela()
     desenho.BorderStyle = BorderStyle.FixedSingle
     desenho.Cursor = Cursors.Cross
     desenho.GetType().GetProperty("DoubleBuffered", System.Reflection.BindingFlags.Instance Or System.Reflection.BindingFlags.NonPublic).SetValue(desenho, True, Nothing)
-    AddHandler desenho.Paint, AddressOf DesenharPlanta
-    AddHandler desenho.MouseDown, AddressOf CliquePlanta
+    AddHandler desenho.Paint, Sub(s As Object, e As PaintEventArgs) DesenharPlanta(s, e)
+    AddHandler desenho.MouseDown, Sub(s As Object, e As MouseEventArgs) CliquePlanta(s, e)
     janela.Controls.Add(desenho)
 
     Dim lateral As New Panel()
@@ -134,11 +135,11 @@ Sub CriarJanela()
     comboAbertura = AdicionarCombo(lateral, 254, New String() {"Esquerda", "Direita", "Para dentro", "Para fora"})
 
     Dim aplicar As Button = CriarBotao(lateral, "Aplicar ao segmento", 15, 303, 240, 38, True)
-    AddHandler aplicar.Click, AddressOf AplicarPropriedades
+    AddHandler aplicar.Click, Sub(s As Object, e As EventArgs) AplicarPropriedades(s, e)
     Dim novo As Button = CriarBotao(lateral, "Novo trecho", 15, 354, 115, 36, False)
-    AddHandler novo.Click, AddressOf NovoTrecho
+    AddHandler novo.Click, Sub(s As Object, e As EventArgs) NovoTrecho(s, e)
     Dim apagar As Button = CriarBotao(lateral, "Excluir", 140, 354, 115, 36, False)
-    AddHandler apagar.Click, AddressOf ExcluirSegmento
+    AddHandler apagar.Click, Sub(s As Object, e As EventArgs) ExcluirSegmento(s, e)
 
     Dim ajuda As New Label()
     ajuda.Text = "AJUDA" & vbCrLf & vbCrLf & "Clique no vazio para desenhar." & vbCrLf & "Clique perto de uma linha para selecionar." & vbCrLf & "ESC encerra o trecho em desenho." & vbCrLf & "Delete exclui o segmento selecionado."
@@ -154,9 +155,9 @@ Sub CriarJanela()
     janela.Controls.Add(rodape)
 
     Dim btnSalvar As Button = CriarBotao(rodape, "Salvar planta", 818, 12, 125, 38, True)
-    AddHandler btnSalvar.Click, AddressOf AoClicarSalvarLayoutNR12
+    AddHandler btnSalvar.Click, Sub(s As Object, e As EventArgs) AoClicarSalvarLayoutNR12(s, e)
     Dim btnCarregar As Button = CriarBotao(rodape, "Carregar", 965, 12, 118, 38, False)
-    AddHandler btnCarregar.Click, AddressOf AoClicarCarregarLayoutNR12
+    AddHandler btnCarregar.Click, Sub(s As Object, e As EventArgs) AoClicarCarregarLayoutNR12(s, e)
     lblStatus = New Label()
     lblStatus.Location = New SD.Point(25, 20)
     lblStatus.Size = New SD.Size(775, 26)

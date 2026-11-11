@@ -107,3 +107,20 @@ Copie **ambos** para `NR12_Modelos` ao lado da montagem principal `.iam`. O gera
 **Orientação A/B ainda precisa ser confirmada no Inventor**: `VarianteAParaGiroPositivo()` troca a correspondência entre A/B e sentido da curva. As prévias incluídas nos IPT permitem confirmar que os modelos são diferentes, mas não estabelecem as referências locais de montagem ou a face real dos grampos. Por padrão `InserirBaseSeparadaNosCantos()` retorna `False`, para evitar duplicação visual da chapa mostrada nas prévias; se os novos IPT não incluírem a base mecanicamente, ajustar para `True` após inspecionar o CAD.
 
 **Advertência:** sem teste no Autodesk Inventor 2024, não há garantia de alinhamento dos furos, faces ou compatibilidade das referências. O gerador remove ocorrências anteriores com prefixo `NR12_` durante regeneração. Testar em cópia da montagem.
+
+
+## Continuidade e porta no editor — v0.7 (experimental)
+
+O painel carrega `NR12_layout.txt` automaticamente ao abrir e salva as modificacoes apos criacao/edicao/exclusao de segmentos, edicao de cotas, fechamento, insercao de porta, e ao fechar a janela. **Caso o arquivo existente nao possa ser lido, o editor bloqueia a gravacao para evitar perda dos dados originais.** A recuperacao automatica depende de o layout antigo ter sido salvo previamente.
+
+- **DESENHAR / LIGAR**: clique num vertice existente para iniciar uma nova linha no mesmo ponto. Clique no meio de um painel para subdividi-lo e criar um ponto de conexao. Cliques no vazio respeitam a grade de 500 mm; vertices existentes e cotas editadas preservam coordenadas exatas.
+- **SELECIONAR**: clique num segmento existente para alterar propriedades, inserir porta ou editar cota (duplo clique).
+- **INSERIR PORTA NO TRECHO**: apos selecionar um painel em qualquer contorno, ajuste largura exata (300–2500 mm), distancia desde o ponto inicial do segmento, tipo e sentido de abertura numa unica janela. A insercao substitui o segmento por painel anterior / porta / painel posterior, sem quebrar o grupo de cercado; sobras de 1–99,99 mm sao recusadas.
+- **Novo trecho** cria outra polilinha independente; ela pode comecar em ponto ja existente e conectar cercados.
+- A configuracao e as alterações do editor continuam experimentais, e a geracao deve ser testada numa copia do IAM.
+
+## Identificacao automatica das colunas A/B — gerador v1.1
+
+A deteccao agora agrupa as faces de cada poste pela **direcao dos trechos** em vez da normal do fechamento. Uma quina de 90° com duas direcoes ativas ativa o CAD A ou B. Um painel segmentado em partes colineares continua usando o poste reto, e uma ligacao em T com uma direcao perpendicular e uma colinear pode ser reconhecida como duas direcoes; **isso nao valida a fixacao mecanica desse encontro**.
+
+No fim da geracao, a caixa de resultado informa **quinas detectadas | colunas A | colunas B**. Se disser 0 quinas, conferir se os extremos coincidem no `NR12_layout.txt` e se os segmentos possuem fechamento. Para usar os modelos A/B, mantenha ambos os IPT em `NR12_Modelos` com seus nomes originais. A associacao entre A/B e a geometria fisica dos grampos ainda pode exigir inverter `VarianteAParaGiroPositivo()` apos testar no Inventor 2024.

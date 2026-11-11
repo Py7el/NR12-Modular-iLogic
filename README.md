@@ -60,3 +60,18 @@ A base requer os dois arquivos `7.1.3.1 - CHAPA LISA 3-4x130x130 (BASE).ipt` e `
 As placas, molduras de janela e folhas de porta continuam sendo sólidos provisórios gerados por iLogic. O gerador não transforma a folha em uma porta mecânica articulada. Nada foi testado no Inventor 2024 nem certificado como solução NR-12.
 
 **Cuidado ao regenerar:** ocorrências cujo nome começa com `NR12_` são apagadas e reinseridas pelo gerador. Faça os testes em uma cópia da montagem.
+
+
+## Calibração do conjunto real — versão 0.7 (experimental)
+
+A regra `05_Gerador_3D/Gerar_3D_NR12.vb` foi atualizada para:
+
+- Usar o sentido do perímetro fechado (área orientada) para determinar o **lado externo**. Em trechos independentes/abertos, considera como externo o lado direito do sentido em que foram desenhados.
+- Calcular uma normal média nos cantos e orientar montantes/bases em função dela.
+- Deslocar painel, janelas e portas para o plano externo dos grampos.
+- Inserir a chapa real `7.1.4 - CHAPA LISA 1-2x130x185.ipt` **provisoriamente como chapa inferior**, com a base soldada e coluna acima. **A identificação desta chapa como a peça preta das imagens NÃO foi confirmada** e pode estar errada. Desative com `USAR_CHAPA_INFERIOR_REAL = False` caso não corresponda.
+- Manter a subdivisão de vão máximo 2500 mm centro a centro.
+
+**Parâmetros no começo do gerador:** `AFASTAMENTO_PLANO_GRADE_MM = 65`, `ANGULO_AJUSTE_GRAMPOS_GRAUS = 0`, `FOLGA_INFERIOR_GRADE_MM = 50` e `USAR_CHAPA_INFERIOR_REAL = True`. São pontos de partida, **não medidas extraídas/verificadas dos CAD**, e devem ser ajustados após inspeção na montagem.
+
+**Limite importante:** a classificação de eixos pela caixa envolvente não revela a face CAD onde estão os grampos, nem garante o alinhamento das interfaces de solda e furação. A coluna e a base são posicionadas como ocorrências distintas; para fixação mecânica correta, será necessário definir referências locais e relações de montagem (ou usar o conjunto principal com referências resolvidas). Não use esta versão como montagem final de fabricação ou de conformidade NR-12. Testar em uma cópia: o gerador apaga as ocorrências anteriores cujos nomes comecem com `NR12_`.

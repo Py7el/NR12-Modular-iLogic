@@ -5,6 +5,7 @@ Imports IV = Inventor
 ' NR12 Modular - gerador 3D preliminar, Inventor 2024.
 ' Criar como regra iLogic separada: Gerar_3D_NR12
 ' Comprimentos em mm no TXT; Inventor utiliza cm internamente.
+' Portas simples, duplas e de correr sao folhas independentes; sem articulacoes reais.
 ' Geometria simplificada: sem malha, ferragens ou validacao normativa.
 Sub Main()
     If ThisDoc.Document.DocumentType <> IV.DocumentTypeEnum.kAssemblyDocumentObject Then
@@ -61,8 +62,16 @@ Sub Main()
             If larguraMM < 300 Then Throw New Exception("Janela requer segmento com pelo menos 300 mm.")
             ObterCaixa(dirPecas, geradas, "MontanteJanela", 50, alturaMM, 35)
             ObterCaixa(dirPecas, geradas, "TravessaJanela", larguraMM - 100, 50, 35)
-        ElseIf Not vazio OrElse modulo = "Com porta" Then
-            ObterCaixa(dirPecas, geradas, If(modulo = "Com porta", "FolhaPorta", "Painel"), larguraMM - 60, alturaMM - 100, If(modulo = "Com porta", 40, 25))
+        ElseIf modulo = "Com porta" Then
+            Dim tipoPorta As String = If(p.Length = 10, p(9), "Porta simples")
+            If larguraMM <= 160 Then Throw New Exception("Porta requer segmento superior a 160 mm.")
+            If tipoPorta = "Porta dupla" Then
+                ObterCaixa(dirPecas, geradas, "FolhaPortaDupla", (larguraMM - 80) / 2, alturaMM - 100, 40)
+            Else
+                ObterCaixa(dirPecas, geradas, "FolhaPorta", larguraMM - 60, alturaMM - 100, 40)
+            End If
+        ElseIf Not vazio Then
+            ObterCaixa(dirPecas, geradas, "Painel", larguraMM - 60, alturaMM - 100, 25)
         End If
     Next
     Dim postePath As String = ObterCaixa(dirPecas, geradas, "Poste", posteMM, posteMM, alturaMM, True)
@@ -99,11 +108,31 @@ Sub Main()
             qtd += 1
             Inserir(ocorr, travessa, MatrizPainel(trans, x1 + ux * 80, y1 + uy * 80, ux, uy, 1950), "NR12_JANELA_T" & qtd.ToString())
             qtd += 1
-        ElseIf Not vazio OrElse modulo = "Com porta" Then
-            Dim nome As String = If(modulo = "Com porta", "FolhaPorta", "Painel")
-            Dim esp As Double = If(modulo = "Com porta", 40, 25)
-            Dim caminho As String = ObterCaixa(dirPecas, geradas, nome, larguraUtil, alturaMM - 100, esp)
-            Inserir(ocorr, caminho, MatrizPainel(trans, xInicial, yInicial, ux, uy, 50), "NR12_" & nome.ToUpperInvariant() & "_" & qtd.ToString())
+        ElseIf modulo = "Com porta" Then
+            ' Porta na montagem: folha independente do painel; com tipologia preservada.
+            Dim tipoPorta As String = If(p.Length = 10, p(9), "Porta simples")
+            Dim abertura As String = p(7)
+            If tipoPorta = "Porta dupla" Then
+                Dim meiaLargura As Double = (largura - 80) / 2
+                Dim caminho As String = ObterCaixa(dirPecas, geradas, "FolhaPortaDupla", meiaLargura, alturaMM - 100, 40)
+                Inserir(ocorr, caminho, MatrizPainel(trans, xInicial, yInicial, ux, uy, 50), "NR12_PORTA_DUPLA_A_" & qtd.ToString())
+                qtd += 1
+                Inserir(ocorr, caminho, MatrizPainel(trans, x2 - ux * (30 + meiaLargura), y2 - uy * (30 + meiaLargura), ux, uy, 50), "NR12_PORTA_DUPLA_B_" & qtd.ToString())
+                qtd += 1
+            ElseIf tipoPorta = "Porta deslizante" Then
+                Dim caminho As String = ObterCaixa(dirPecas, geradas, "FolhaPorta", larguraUtil, alturaMM - 100, 40)
+                ' Folha deslocada transversalmente 100mm para identificar trilho de correr.
+                Dim lado As Double = If(abertura = "Para dentro" OrElse abertura = "Direita", -1.0, 1.0)
+                Inserir(ocorr, caminho, MatrizPainel(trans, xInicial - uy * 100 * lado, yInicial + ux * 100 * lado, ux, uy, 50), "NR12_PORTA_DESLIZANTE_" & qtd.ToString())
+                qtd += 1
+            Else
+                Dim caminho As String = ObterCaixa(dirPecas, geradas, "FolhaPorta", larguraUtil, alturaMM - 100, 40)
+                Inserir(ocorr, caminho, MatrizPainel(trans, xInicial, yInicial, ux, uy, 50), "NR12_PORTA_SIMPLES_" & qtd.ToString())
+                qtd += 1
+            End If
+        ElseIf Not vazio Then
+            Dim caminho As String = ObterCaixa(dirPecas, geradas, "Painel", larguraUtil, alturaMM - 100, 25)
+            Inserir(ocorr, caminho, MatrizPainel(trans, xInicial, yInicial, ux, uy, 50), "NR12_PAINEL_" & qtd.ToString())
             qtd += 1
         End If
     Next

@@ -403,7 +403,7 @@ End Sub
 
 
 ' Convencao grafica de planta: a linha do vao NAO recebe painel continuo.
-Sub DesenharSimboloPorta(g As SD.Graphics, s As SegmentoNR, cor As SD.Color)
+Private Sub DesenharSimboloPorta(g As SD.Graphics, s As SegmentoNR, cor As SD.Color)
     Dim x1 As Single = CSng(origemX + s.X1 * escala)
     Dim y1 As Single = CSng(origemY - s.Y1 * escala)
     Dim x2 As Single = CSng(origemX + s.X2 * escala)
@@ -443,7 +443,7 @@ Sub DesenharSimboloPorta(g As SD.Graphics, s As SegmentoNR, cor As SD.Color)
     End Using
 End Sub
 
-Sub DesenharSimboloJanela(g As SD.Graphics, s As SegmentoNR, cor As SD.Color)
+Private Sub DesenharSimboloJanela(g As SD.Graphics, s As SegmentoNR, cor As SD.Color)
     Dim x1 As Single = CSng(origemX + s.X1 * escala)
     Dim y1 As Single = CSng(origemY - s.Y1 * escala)
     Dim x2 As Single = CSng(origemX + s.X2 * escala)

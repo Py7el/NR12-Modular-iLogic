@@ -4,6 +4,7 @@ Imports IV = Inventor
 
 ' NR12 Modular - gerador 3D preliminar, Inventor 2024.
 ' Subdivisao automatica max. 2500 mm entre eixos de postes.
+' Montantes e bases inseridos a partir da biblioteca CAD real fornecida.
 ' Criar como regra iLogic separada: Gerar_3D_NR12
 ' Comprimentos em mm no TXT; Inventor utiliza cm internamente.
 ' Portas simples, duplas e de correr sao folhas independentes; sem articulacoes reais.
@@ -65,6 +66,22 @@ Sub Main()
         Next
     Next
     dados = subdivididos
+    ' Modelos CAD reais entregues no pacote NR12_Modelos_Reais.zip.
+    ' Copiar a pasta NR12_Modelos ao lado do arquivo .iam.
+    Dim pastaModelos As String = IO.Path.Combine(raiz, "NR12_Modelos")
+    Dim colunaReal As String = IO.Path.Combine(pastaModelos, "7.1.2 - COLUNA-MONTANTE.ipt")
+    Dim baseReal As String = IO.Path.Combine(pastaModelos, "7.1.3 - BASE SOLDADA PARA MONTANTE.iam")
+    If Not IO.File.Exists(colunaReal) OrElse Not IO.File.Exists(baseReal) Then
+        MessageBox.Show("Os modelos reais da coluna e base nao foram encontrados." & vbCrLf & _
+            "Extraia NR12_Modelos_Reais.zip na pasta da montagem (.iam), mantendo NR12_Modelos.", "NR12 - modelos ausentes")
+        Exit Sub
+    End If
+    Dim depend1 As String = IO.Path.Combine(pastaModelos, "7.1.3.1 - CHAPA LISA 3-4x130x130 (BASE).ipt")
+    Dim depend2 As String = IO.Path.Combine(pastaModelos, "7.1.3.2 - TUBO QUADRADO - 50 x 50 x 2  - 280mm.ipt")
+    If Not IO.File.Exists(depend1) OrElse Not IO.File.Exists(depend2) Then
+        MessageBox.Show("Faltam arquivos IPT referenciados pela base soldada.", "NR12")
+        Exit Sub
+    End If
     Dim dirPecas As String = IO.Path.Combine(raiz, "NR12_Gerado")
     IO.Directory.CreateDirectory(dirPecas)
     Dim geradas As New System.Collections.Generic.Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
@@ -105,7 +122,8 @@ Sub Main()
             ObterCaixa(dirPecas, geradas, "Painel", larguraMM - 60, alturaMM - 100, 25)
         End If
     Next
-    Dim postePath As String = ObterCaixa(dirPecas, geradas, "Poste", posteMM, posteMM, alturaMM, True)
+    ' Substitui poste generico pelos arquivos reais de coluna e base.
+    ' Sem alterar parametricamente esses modelos originais.
 
     ' Desfazer geracao anterior apenas depois que os arquivos forem criados.
     For i As Integer = ocorr.Count To 1 Step -1
@@ -123,8 +141,8 @@ Sub Main()
         Dim ux As Double = dx / largura, uy As Double = dy / largura
         Dim modulo As String = If(p.Length = 10, p(8), If(p(6) = "Sem portao", "Sem janela", "Com porta"))
         Dim vazio As Boolean = p(5) = "Vazio"
-        CriarPosteSeNovo(pontos, ocorr, postePath, x1, y1, trans, qtd)
-        CriarPosteSeNovo(pontos, ocorr, postePath, x2, y2, trans, qtd)
+        CriarPosteSeNovo(pontos, ocorr, colunaReal, baseReal, x1, y1, trans, qtd)
+        CriarPosteSeNovo(pontos, ocorr, colunaReal, baseReal, x2, y2, trans, qtd)
         Dim larguraUtil As Double = largura - 60
         Dim xInicial As Double = x1 + ux * 30
         Dim yInicial As Double = y1 + uy * 30
@@ -173,14 +191,28 @@ Sub Main()
                     "Geometria de estudo: nao representa conformidade NR-12.", "NR12 Modular")
 End Sub
 
-Sub CriarPosteSeNovo(pontos As System.Collections.Generic.Dictionary(Of String, Boolean), ocorr As IV.ComponentOccurrences, caminho As String, x As Double, y As Double, tg As IV.TransientGeometry, ByRef contador As Integer)
+' Alinha pelo centro XY da caixa envolvente, apoiando Z minimo no plano Z=0.
+' Essa referencia de posicionamento deve ser validada frente a origem geometrica real do IPT/IAM.
+Sub InserirModeloReal(ocorr As IV.ComponentOccurrences, caminho As String, x As Double, y As Double, tg As IV.TransientGeometry, nome As String)
+    Dim m As IV.Matrix = tg.CreateMatrix()
+    Dim o As IV.ComponentOccurrence = ocorr.Add(caminho, m)
+    o.Name = nome
+    Dim caixa As IV.Box = o.RangeBox
+    Dim centroX As Double = (caixa.MinPoint.X + caixa.MaxPoint.X) / 2
+    Dim centroY As Double = (caixa.MinPoint.Y + caixa.MaxPoint.Y) / 2
+    Dim minimoZ As Double = caixa.MinPoint.Z
+    Dim novaMatriz As IV.Matrix = o.Transformation
+    novaMatriz.SetTranslation(tg.CreateVector(x / 10 - centroX, y / 10 - centroY, -minimoZ))
+    o.Transformation = novaMatriz
+End Sub
+
+Sub CriarPosteSeNovo(pontos As System.Collections.Generic.Dictionary(Of String, Boolean), ocorr As IV.ComponentOccurrences, coluna As String, base As String, x As Double, y As Double, tg As IV.TransientGeometry, ByRef contador As Integer)
     Dim chave As String = Math.Round(x, 1).ToString(CI.InvariantCulture) & ";" & Math.Round(y, 1).ToString(CI.InvariantCulture)
     If pontos.ContainsKey(chave) Then Exit Sub
     pontos.Add(chave, True)
-    Dim m As IV.Matrix = tg.CreateMatrix()
-    ' Criado no esboco XY, extrudado em Z; poste local usa eixos globais.
-    m.SetTranslation(tg.CreateVector((x - 30) / 10, (y - 30) / 10, 0))
-    Inserir(ocorr, caminho, m, "NR12_POSTE_" & contador.ToString())
+    InserirModeloReal(ocorr, coluna, x, y, tg, "NR12_COLUNA_REAL_" & contador.ToString())
+    contador += 1
+    InserirModeloReal(ocorr, base, x, y, tg, "NR12_BASE_REAL_" & contador.ToString())
     contador += 1
 End Sub
 

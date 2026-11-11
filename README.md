@@ -94,3 +94,16 @@ No gerador `Gerar_3D_NR12.vb`, cada poste guarda as normais externas distintas d
 As funções de calibração ao final do gerador são `AfastamentoGrampoMm()`, `AlturaGrampoInferiorMm()` e `AlturaGrampoSuperiorMm()`. Os valores são provisórios e não vieram de cotas verificadas nos modelos.
 
 Teste numa **cópia** do IAM: a regeneração remove e reinsere ocorrências de nome iniciado por `NR12_`. Ainda não houve compilação do código dentro do Autodesk Inventor 2024.
+
+
+## Modelos reais de coluna de duas faces A/B — v1.0 experimental
+
+Foram recebidos os dois IPT do usuário:
+- `7.1.2 - COLUNA-MONTANTE 2 lado a.ipt`
+- `7.1.2 - COLUNA-MONTANTE 2 lado b.ipt`
+
+Copie **ambos** para `NR12_Modelos` ao lado da montagem principal `.iam`. O gerador passa a escolher um IPT de duas faces para cada canto de 90° com duas faces de fechamento. Postes com uma única face usam o `7.1.2 - COLUNA-MONTANTE.ipt` original. Não há mais inserção de grampos genéricos.
+
+**Orientação A/B ainda precisa ser confirmada no Inventor**: `VarianteAParaGiroPositivo()` troca a correspondência entre A/B e sentido da curva. As prévias incluídas nos IPT permitem confirmar que os modelos são diferentes, mas não estabelecem as referências locais de montagem ou a face real dos grampos. Por padrão `InserirBaseSeparadaNosCantos()` retorna `False`, para evitar duplicação visual da chapa mostrada nas prévias; se os novos IPT não incluírem a base mecanicamente, ajustar para `True` após inspecionar o CAD.
+
+**Advertência:** sem teste no Autodesk Inventor 2024, não há garantia de alinhamento dos furos, faces ou compatibilidade das referências. O gerador remove ocorrências anteriores com prefixo `NR12_` durante regeneração. Testar em cópia da montagem.

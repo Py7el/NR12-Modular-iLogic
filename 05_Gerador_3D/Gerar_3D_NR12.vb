@@ -3,6 +3,7 @@ Imports CI = System.Globalization.CultureInfo
 Imports IV = Inventor
 
 ' NR12 Modular - gerador 3D preliminar, Inventor 2024.
+' Subdivisao automatica max. 2500 mm entre eixos de postes.
 ' Criar como regra iLogic separada: Gerar_3D_NR12
 ' Comprimentos em mm no TXT; Inventor utiliza cm internamente.
 ' Portas simples, duplas e de correr sao folhas independentes; sem articulacoes reais.
@@ -34,6 +35,36 @@ Sub Main()
         MessageBox.Show("Nao existem segmentos para gerar.", "NR12")
         Exit Sub
     End If
+
+    ' Regra geometrica: distancia maxima entre eixos de postes = 2500 mm.
+    ' A subdivisao e aplicada ANTES da geracao de pecas e postes.
+    ' Portas nao sao cortadas: suas aberturas devem ter no maximo 2500 mm.
+    Dim invDiv As CI = CI.InvariantCulture
+    Dim subdivididos As New System.Collections.Generic.List(Of String())
+    For Each registro As String() In dados
+        Dim ax As Double = Double.Parse(registro(0), invDiv)
+        Dim ay As Double = Double.Parse(registro(1), invDiv)
+        Dim bx As Double = Double.Parse(registro(2), invDiv)
+        Dim by As Double = Double.Parse(registro(3), invDiv)
+        Dim dist As Double = Math.Sqrt(Math.Pow(bx - ax, 2) + Math.Pow(by - ay, 2))
+        If dist < 100 Then Throw New Exception("Trecho inferior a 100 mm: revise a planta.")
+        Dim modulo As String = If(registro.Length = 10, registro(8), If(registro(6) = "Sem portao", "Sem janela", "Com porta"))
+        If modulo = "Com porta" AndAlso dist > 2500.0001 Then
+            Throw New Exception("Abertura de porta com " & Math.Round(dist, 1).ToString(invDiv) & _
+              " mm ultrapassa o limite de 2500 mm entre postes. Divida o trecho na planta.")
+        End If
+        Dim n As Integer = CInt(Math.Ceiling(dist / 2500.0))
+        If n < 1 Then n = 1
+        For k As Integer = 0 To n - 1
+            Dim parte As String() = CType(registro.Clone(), String())
+            parte(0) = (ax + (bx - ax) * CDbl(k) / CDbl(n)).ToString("R", invDiv)
+            parte(1) = (ay + (by - ay) * CDbl(k) / CDbl(n)).ToString("R", invDiv)
+            parte(2) = (ax + (bx - ax) * CDbl(k + 1) / CDbl(n)).ToString("R", invDiv)
+            parte(3) = (ay + (by - ay) * CDbl(k + 1) / CDbl(n)).ToString("R", invDiv)
+            subdivididos.Add(parte)
+        Next
+    Next
+    dados = subdivididos
     Dim dirPecas As String = IO.Path.Combine(raiz, "NR12_Gerado")
     IO.Directory.CreateDirectory(dirPecas)
     Dim geradas As New System.Collections.Generic.Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)

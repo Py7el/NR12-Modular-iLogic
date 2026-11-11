@@ -11,6 +11,8 @@ Configurador de cercamentos modulares NR-12, inspirado no fluxo de desenho de pl
 - Seleção individual de segmentos, com aplicação de tipo de painel.
 - Módulo **sem janela**, **com janela**, **com porta**, tipo e sentido de porta.
 - Snap de desenho livre, 90°, 45° e ângulo absoluto informado.
+- Malha visível de 500 mm com encaixe nos cliques; **cotas editáveis em qualquer milímetro exato** por duplo clique na cota ou segmento.
+- Ao modificar uma cota, move-se a extremidade final do segmento e os extremos coincidentes de segmentos do mesmo grupo. A geometria vizinha pode mudar de comprimento/ângulo; **a preservação de ortogonalidade é um aprimoramento futuro**.
 - Fechar cerca ligando último ponto ao início ou pelo botão **Fechar cercado**.
 - Salvar/carregar layout em formato TXT delimitado por ponto e vírgula, ao lado da montagem.
 - Interface WinForms com identidade visual roxo/âmbar derivada do projeto de referência fornecido.

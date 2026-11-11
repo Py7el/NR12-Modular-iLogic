@@ -3,7 +3,7 @@ Imports CI = System.Globalization.CultureInfo
 Imports IV = Inventor
 
 ' NR12 Modular - gerador 3D preliminar, Inventor 2024.
-' VERSAO 0.5.1 - usa exatamente a pasta da montagem para localizar NR12_layout.txt.
+' VERSAO 0.5.2 - permite selecionar NR12_layout.txt quando nao esta ao lado da montagem.
 ' Subdivisao automatica max. 2500 mm entre eixos de postes.
 ' Montantes e bases inseridos a partir da biblioteca CAD real fornecida.
 ' Criar como regra iLogic separada: Gerar_3D_NR12
@@ -23,11 +23,21 @@ Sub Main()
     Dim raiz As String = IO.Path.GetDirectoryName(montagem.FullFileName)
     Dim fonte As String = IO.Path.Combine(raiz, "NR12_layout.txt")
     If Not IO.File.Exists(fonte) Then
-        MessageBox.Show("Layout NR12 nao encontrado na pasta desta montagem:" & vbCrLf & _
-            raiz & vbCrLf & vbCrLf & _
-            "Abra o editor 2D, desenhe/carregue a planta e clique Salvar planta." & vbCrLf & _
-            "Arquivo esperado: " & fonte, "NR12 - layout ausente")
-        Exit Sub
+        Dim resposta As System.Windows.Forms.DialogResult = System.Windows.Forms.MessageBox.Show( _
+            "O layout nao foi encontrado na pasta desta montagem:" & vbCrLf & fonte & vbCrLf & vbCrLf & _
+            "Deseja localizar manualmente o arquivo NR12_layout.txt?", _
+            "NR12 - localizar planta", System.Windows.Forms.MessageBoxButtons.YesNo, _
+            System.Windows.Forms.MessageBoxIcon.Question)
+        If resposta <> System.Windows.Forms.DialogResult.Yes Then Exit Sub
+        Using seletor As New System.Windows.Forms.OpenFileDialog()
+            seletor.Title = "Selecione o layout NR12 salvo pelo editor 2D"
+            seletor.Filter = "Layout NR12 (NR12_layout.txt)|NR12_layout.txt|Arquivos TXT (*.txt)|*.txt"
+            seletor.CheckFileExists = True
+            seletor.Multiselect = False
+            seletor.InitialDirectory = raiz
+            If seletor.ShowDialog() <> System.Windows.Forms.DialogResult.OK Then Exit Sub
+            fonte = seletor.FileName
+        End Using
     End If
     Dim dados As New System.Collections.Generic.List(Of String())
     For Each linha As String In IO.File.ReadAllLines(fonte)

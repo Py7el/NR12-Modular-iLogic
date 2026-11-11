@@ -23,7 +23,7 @@ Sub Main()
     janela.ShowDialog()
 End Sub
 
-Private Class SegmentoNR
+Public Class SegmentoNR
     Public X1 As Double
     Public Y1 As Double
     Public X2 As Double

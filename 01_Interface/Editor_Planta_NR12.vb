@@ -4,7 +4,7 @@ Imports SD = System.Drawing
 Imports IO = System.IO
 
 ' NR12 Modular — prototipo do editor 2D para iLogic / Inventor 2024.
-' VERSAO TESTE V0.5.1 - sincronizacao do caminho de layout com gerador 3D.
+' VERSAO TESTE V0.6 - permite inserir porta em trecho de contorno ja fechado.
 ' A malha de 500 mm limita apenas novos cliques, nao a edicao de cotas.
 ' Inspirado na composicao e paleta do Painel_parametros.vb do projeto original.
 ' Ainda nao gera montagem 3D nem valida requisitos normativos.
@@ -167,12 +167,14 @@ Sub CriarJanela()
     AddHandler novo.Click, Sub(s As Object, e As EventArgs) NovoTrecho(s, e)
     Dim fechar As Button = CriarBotao(lateral, "Fechar cercado", 136, 433, 119, 32, False)
     AddHandler fechar.Click, Sub(s As Object, e As EventArgs) FecharCercado(s, e)
-    Dim apagar As Button = CriarBotao(lateral, "Excluir selecionado", 15, 474, 240, 30, False)
+    Dim inserirPorta As Button = CriarBotao(lateral, "INSERIR PORTA NO TRECHO", 15, 474, 240, 30, True)
+    AddHandler inserirPorta.Click, Sub(s As Object, e As EventArgs) InserirPortaNoTrecho(s, e)
+    Dim apagar As Button = CriarBotao(lateral, "Excluir selecionado", 15, 510, 240, 27, False)
     AddHandler apagar.Click, Sub(s As Object, e As EventArgs) ExcluirSegmento(s, e)
     Dim ajuda As New Label()
-    ajuda.Text = "AJUDA: selecione um segmento, escolha Com porta e clique Aplicar. Duplo clique na cota para editar. Desenho: 90 graus ou livre."
-    ajuda.Location = New SD.Point(15, 517)
-    ajuda.Size = New SD.Size(245, 55)
+    ajuda.Text = "Porta: selecione linha, escolha tipo/abertura e clique INSERIR. Informe largura e posicao em mm."
+    ajuda.Location = New SD.Point(15, 543)
+    ajuda.Size = New SD.Size(245, 29)
     ajuda.ForeColor = SD.Color.FromArgb(74, 69, 96)
     lateral.Controls.Add(ajuda)
 
@@ -564,6 +566,101 @@ Sub AplicarPropriedades(sender As Object, e As EventArgs)
     s.Abertura = CStr(comboAbertura.SelectedItem)
     lblStatus.Text = "Propriedades aplicadas ao segmento " & (selecionado + 1).ToString() & "."
     desenho.Invalidate()
+End Sub
+
+
+' Insere uma porta num segmento existente, mesmo depois de Fechar cercado.
+' Subdivide o segmento em: painel anterior / abertura da porta / painel posterior.
+' Todos mantem o Grupo original, de modo que o contorno permanece continuo.
+Function LerMedidaPorta(titulo As String, sugestao As Double, ByRef valor As Double) As Boolean
+    Dim texto As String = Microsoft.VisualBasic.Interaction.InputBox( _
+        titulo, "NR12 Modular - inserir porta", _
+        sugestao.ToString("0.###", System.Globalization.CultureInfo.CurrentCulture))
+    If String.IsNullOrWhiteSpace(texto) Then Return False
+    texto = texto.Trim().Replace(" ", "")
+    Dim estilos As System.Globalization.NumberStyles = System.Globalization.NumberStyles.Float
+    If Double.TryParse(texto, estilos, System.Globalization.CultureInfo.CurrentCulture, valor) Then
+        Return Not (Double.IsNaN(valor) OrElse Double.IsInfinity(valor))
+    End If
+    Return Double.TryParse(texto.Replace(","c, "."c), estilos, System.Globalization.CultureInfo.InvariantCulture, valor)
+End Function
+
+Sub InserirPortaNoTrecho(sender As Object, e As EventArgs)
+    If selecionado < 0 OrElse selecionado >= lista.Count Then
+        MessageBox.Show("Selecione primeiro uma linha do cercado, mesmo que o contorno ja esteja fechado.", "NR12")
+        Exit Sub
+    End If
+    Dim original As SegmentoNR = lista(selecionado)
+    If original.Modulo = "Com porta" Then
+        MessageBox.Show("Este segmento ja e uma porta. Selecione um painel adjacente.", "NR12")
+        Exit Sub
+    End If
+    Dim dx As Double = original.X2 - original.X1
+    Dim dy As Double = original.Y2 - original.Y1
+    Dim comprimento As Double = Math.Sqrt(dx * dx + dy * dy)
+    If comprimento < 500 Then
+        MessageBox.Show("Trecho muito curto. E necessario ao menos 500 mm para inserir uma porta.", "NR12")
+        Exit Sub
+    End If
+    Dim largura As Double = Math.Min(1000, Math.Floor(comprimento - 200))
+    If Not LerMedidaPorta("Largura da porta (mm), entre 300 e 2500:", largura, largura) Then Exit Sub
+    If largura < 300 OrElse largura > 2500 Then
+        MessageBox.Show("A largura da porta deve estar entre 300 e 2500 mm.", "NR12")
+        Exit Sub
+    End If
+    If comprimento < largura + 200 Then
+        MessageBox.Show("Trecho insuficiente. Reserve no minimo 100 mm de painel em cada lado da porta.", "NR12")
+        Exit Sub
+    End If
+    Dim posicao As Double = (comprimento - largura) / 2
+    If Not LerMedidaPorta("Distancia do ponto INICIAL do segmento ate o inicio da porta (mm):" & vbCrLf & _
+        "Minimo 100; maximo " & (comprimento - largura - 100).ToString("0.###"), posicao, posicao) Then Exit Sub
+    If posicao < 100 OrElse posicao + largura > comprimento - 100 Then
+        MessageBox.Show("A porta deve manter pelo menos 100 mm entre ela e cada extremidade deste segmento.", "NR12")
+        Exit Sub
+    End If
+
+    Dim ux As Double = dx / comprimento, uy As Double = dy / comprimento
+    Dim inicioX As Double = original.X1 + ux * posicao
+    Dim inicioY As Double = original.Y1 + uy * posicao
+    Dim fimX As Double = original.X1 + ux * (posicao + largura)
+    Dim fimY As Double = original.Y1 + uy * (posicao + largura)
+    Dim antes As New SegmentoNR()
+    antes.X1 = original.X1 : antes.Y1 = original.Y1
+    antes.X2 = inicioX : antes.Y2 = inicioY
+    antes.Grupo = original.Grupo
+    antes.Tipo = original.Tipo : antes.Modulo = original.Modulo
+    antes.Porta = original.Porta : antes.Abertura = original.Abertura
+    antes.Acesso = "Sem portao"
+
+    Dim portaNova As New SegmentoNR()
+    portaNova.X1 = inicioX : portaNova.Y1 = inicioY
+    portaNova.X2 = fimX : portaNova.Y2 = fimY
+    portaNova.Grupo = original.Grupo
+    portaNova.Tipo = original.Tipo
+    portaNova.Modulo = "Com porta"
+    portaNova.Porta = CStr(comboPorta.SelectedItem)
+    portaNova.Abertura = CStr(comboAbertura.SelectedItem)
+    portaNova.Acesso = portaNova.Porta
+
+    Dim depois As New SegmentoNR()
+    depois.X1 = fimX : depois.Y1 = fimY
+    depois.X2 = original.X2 : depois.Y2 = original.Y2
+    depois.Grupo = original.Grupo
+    depois.Tipo = original.Tipo : depois.Modulo = original.Modulo
+    depois.Porta = original.Porta : depois.Abertura = original.Abertura
+    depois.Acesso = "Sem portao"
+
+    Dim indiceOriginal As Integer = selecionado
+    lista.RemoveAt(indiceOriginal)
+    lista.Insert(indiceOriginal, antes)
+    lista.Insert(indiceOriginal + 1, portaNova)
+    lista.Insert(indiceOriginal + 2, depois)
+    selecionado = indiceOriginal + 1
+    ExibirPropriedades()
+    desenho.Invalidate()
+    lblStatus.Text = "Porta de " & largura.ToString("0.###") & " mm inserida a " & _
+        posicao.ToString("0.###") & " mm do inicio. Contorno preservado."
 End Sub
 
 Sub NovoTrecho(sender As Object, e As EventArgs)

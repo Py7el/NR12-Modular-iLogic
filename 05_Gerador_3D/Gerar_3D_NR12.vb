@@ -5,7 +5,7 @@ Imports IV = Inventor
 ' Parametros ficam nas funcoes no final desta regra para evitar declaracoes no namespace.
 
 ' NR12 Modular - gerador 3D preliminar, Inventor 2024.
-' VERSAO 0.7.1 - parametros em funcoes para compatibilidade com compilacao iLogic.
+' VERSAO 0.8 - uma orientacao por face nos cantos; base original sem chapa extra; marcadores de presilha.
 ' Subdivisao automatica max. 2500 mm entre eixos de postes.
 ' Montantes e bases inseridos a partir da biblioteca CAD real fornecida.
 ' Criar como regra iLogic separada: Gerar_3D_NR12
@@ -87,7 +87,6 @@ Sub Main()
     Dim pastaModelos As String = IO.Path.Combine(raiz, "NR12_Modelos")
     Dim colunaReal As String = IO.Path.Combine(pastaModelos, "7.1.2 - COLUNA-MONTANTE.ipt")
     Dim baseReal As String = IO.Path.Combine(pastaModelos, "7.1.3 - BASE SOLDADA PARA MONTANTE.iam")
-    Dim chapaInferiorReal As String = IO.Path.Combine(pastaModelos, "7.1.4 - CHAPA LISA 1-2x130x185.ipt")
     If Not IO.File.Exists(colunaReal) OrElse Not IO.File.Exists(baseReal) Then
         MessageBox.Show("Os modelos reais da coluna e base nao foram encontrados." & vbCrLf & _
             "Extraia NR12_Modelos_Reais.zip na pasta da montagem (.iam), mantendo NR12_Modelos.", "NR12 - modelos ausentes")
@@ -97,10 +96,6 @@ Sub Main()
     Dim depend2 As String = IO.Path.Combine(pastaModelos, "7.1.3.2 - TUBO QUADRADO - 50 x 50 x 2  - 280mm.ipt")
     If Not IO.File.Exists(depend1) OrElse Not IO.File.Exists(depend2) Then
         MessageBox.Show("Faltam arquivos IPT referenciados pela base soldada.", "NR12")
-        Exit Sub
-    End If
-    If UsarChapaInferiorReal() AndAlso Not IO.File.Exists(chapaInferiorReal) Then
-        MessageBox.Show("Chapa inferior real nao encontrada: " & chapaInferiorReal, "NR12")
         Exit Sub
     End If
     Dim dirPecas As String = IO.Path.Combine(raiz, "NR12_Gerado")
@@ -116,8 +111,9 @@ Sub Main()
     Dim alturaCm As Double = alturaMM / 10
     Dim qtd As Integer = 0
 
-    ' Normal media por vertice: permite orientar o montante nos cantos.
+    ' Uma orientacao PRINCIPAL por poste. Nao calcular a bissetriz de cantos de 90 graus.
     Dim normaisPorPoste As New System.Collections.Generic.Dictionary(Of String, Double())(StringComparer.OrdinalIgnoreCase)
+    Dim normaisExtrasPorPoste As New System.Collections.Generic.Dictionary(Of String, System.Collections.Generic.List(Of Double()))(StringComparer.OrdinalIgnoreCase)
     For Each registro As String() In dados
         Dim aX As Double = Double.Parse(registro(0), inv)
         Dim aY As Double = Double.Parse(registro(1), inv)
@@ -125,8 +121,8 @@ Sub Main()
         Dim bY As Double = Double.Parse(registro(3), inv)
         Dim nX As Double = 0, nY As Double = 0
         NormalExternaTrecho(registro, dados, nX, nY)
-        AcumularNormal(normaisPorPoste, aX, aY, nX, nY)
-        AcumularNormal(normaisPorPoste, bX, bY, nX, nY)
+        RegistrarNormalDoPoste(normaisPorPoste, normaisExtrasPorPoste, aX, aY, nX, nY)
+        RegistrarNormalDoPoste(normaisPorPoste, normaisExtrasPorPoste, bX, bY, nX, nY)
     Next
 
     ' Preparar pecas primeiro. Depois de validar todas, substituir ocorrencias antigas.
@@ -177,8 +173,8 @@ Sub Main()
         Dim vazio As Boolean = p(5) = "Vazio"
         Dim nx As Double = 0, ny As Double = 0
         NormalExternaTrecho(p, dados, nx, ny)
-        CriarPosteSeNovo(pontos, normaisPorPoste, ocorr, colunaReal, baseReal, chapaInferiorReal, x1, y1, trans, qtd)
-        CriarPosteSeNovo(pontos, normaisPorPoste, ocorr, colunaReal, baseReal, chapaInferiorReal, x2, y2, trans, qtd)
+        CriarPosteSeNovo(pontos, normaisPorPoste, normaisExtrasPorPoste, ocorr, colunaReal, baseReal, x1, y1, trans, qtd, dirPecas, geradas)
+        CriarPosteSeNovo(pontos, normaisPorPoste, normaisExtrasPorPoste, ocorr, colunaReal, baseReal, x2, y2, trans, qtd, dirPecas, geradas)
         Dim larguraUtil As Double = largura - 60
         ' A grade fica do lado EXTERNO, sobre a linha dos grampos.
         Dim xInicial As Double = x1 + ux * 30 + nx * AfastamentoPlanoGradeMm()
@@ -275,14 +271,25 @@ Function ChavePoste(x As Double, y As Double) As String
     Return Math.Round(x, 1).ToString(CI.InvariantCulture) & ";" & Math.Round(y, 1).ToString(CI.InvariantCulture)
 End Function
 
-Sub AcumularNormal(tabela As System.Collections.Generic.Dictionary(Of String, Double()), x As Double, y As Double, nx As Double, ny As Double)
+' Registra a primeira normal como orientacao do poste; normals de faces adicionais
+' sao guardadas em separado. Postes de canto NAO usam media (que geraria 45 graus).
+Sub RegistrarNormalDoPoste(principais As System.Collections.Generic.Dictionary(Of String, Double()), extras As System.Collections.Generic.Dictionary(Of String, System.Collections.Generic.List(Of Double())), x As Double, y As Double, nx As Double, ny As Double)
     Dim chave As String = ChavePoste(x, y)
-    If Not tabela.ContainsKey(chave) Then tabela.Add(chave, New Double() {0, 0})
-    tabela(chave)(0) += nx
-    tabela(chave)(1) += ny
+    If Not principais.ContainsKey(chave) Then
+        principais.Add(chave, New Double() {nx, ny})
+        Return
+    End If
+    Dim primeira As Double() = principais(chave)
+    Dim produto As Double = primeira(0) * nx + primeira(1) * ny
+    If Math.Abs(produto) > 0.95 Then Return
+    If Not extras.ContainsKey(chave) Then extras.Add(chave, New System.Collections.Generic.List(Of Double()))
+    For Each atual As Double() In extras(chave)
+        If Math.Abs(atual(0) * nx + atual(1) * ny) > 0.95 Then Return
+    Next
+    extras(chave).Add(New Double() {nx, ny})
 End Sub
 
-' Insere CAD real em pe e gira a direcao LOCAL dos grampos para a normal externa.
+' Insere CAD real em pe com face PRINCIPAL do poste alinhada a um dos trechos.
 ' Usa a dimensao mais longa para reconhecer o eixo vertical da coluna/base.
 ' Face real dos grampos ainda depende do ajuste AnguloAjusteGramposGraus().
 Function InserirModeloOrientado(ocorr As IV.ComponentOccurrences, caminho As String, x As Double, y As Double, zBaseMm As Double, nx As Double, ny As Double, tg As IV.TransientGeometry, nome As String, chapaHorizontal As Boolean) As IV.ComponentOccurrence
@@ -340,7 +347,9 @@ Function InserirModeloOrientado(ocorr As IV.ComponentOccurrences, caminho As Str
     Return o
 End Function
 
-Sub CriarPosteSeNovo(pontos As System.Collections.Generic.Dictionary(Of String, Boolean), normais As System.Collections.Generic.Dictionary(Of String, Double()), ocorr As IV.ComponentOccurrences, coluna As String, base As String, chapa As String, x As Double, y As Double, tg As IV.TransientGeometry, ByRef contador As Integer)
+' Coluna e base reais: o arquivo BASE SOLDADA ja contem a chapa 7.1.3.1.
+' Nenhuma chapa 7.1.4 deve ser colocada sob a base.
+Sub CriarPosteSeNovo(pontos As System.Collections.Generic.Dictionary(Of String, Boolean), normais As System.Collections.Generic.Dictionary(Of String, Double()), extras As System.Collections.Generic.Dictionary(Of String, System.Collections.Generic.List(Of Double())), ocorr As IV.ComponentOccurrences, coluna As String, base As String, x As Double, y As Double, tg As IV.TransientGeometry, ByRef contador As Integer, pastaPecas As String, cache As System.Collections.Generic.Dictionary(Of String, String))
     Dim chave As String = ChavePoste(x, y)
     If pontos.ContainsKey(chave) Then Exit Sub
     pontos.Add(chave, True)
@@ -352,16 +361,27 @@ Sub CriarPosteSeNovo(pontos As System.Collections.Generic.Dictionary(Of String, 
             nx = vetor(0) / tam : ny = vetor(1) / tam
         End If
     End If
-    Dim zAcimaChapa As Double = 0
-    If UsarChapaInferiorReal() Then
-        Dim ocorrChapa As IV.ComponentOccurrence = InserirModeloOrientado(ocorr, chapa, x, y, 0, nx, ny, tg, "NR12_CHAPA_INFERIOR_" & contador.ToString(), True)
-        zAcimaChapa = ocorrChapa.RangeBox.MaxPoint.Z * 10
-        contador += 1
+    ' A base soldada e a coluna compartilham o piso Z=0; nao adicionar chapa solta.
+    InserirModeloOrientado(ocorr, base, x, y, 0, nx, ny, tg, "NR12_BASE_REAL_" & contador.ToString(), False)
+    contador += 1
+    InserirModeloOrientado(ocorr, coluna, x, y, 0, nx, ny, tg, "NR12_COLUNA_REAL_" & contador.ToString(), False)
+    contador += 1
+
+    ' Se o canto possui outras faces, registrar as presilhas necessarias.
+    ' Sao blocos VISUAIS de referencia, nao presilhas reais de producao.
+    If GerarMarcadoresCanto() AndAlso extras.ContainsKey(chave) Then
+        Dim refPeca As String = ObterCaixa(pastaPecas, cache, "PresilhaCanto_APENAS_REFERENCIA", 60, 45, 8)
+        For Each direcao As Double() In extras(chave)
+            Dim ex As Double = direcao(0), ey As Double = direcao(1)
+            Dim tangX As Double = -ey, tangY As Double = ex
+            Dim posX As Double = x + ex * 35 - tangX * 30
+            Dim posY As Double = y + ey * 35 - tangY * 30
+            Inserir(ocorr, refPeca, MatrizPainel(tg, posX, posY, tangX, tangY, 450), "NR12_PRESILHA_CANTO_REFERENCIA_" & contador.ToString())
+            contador += 1
+            Inserir(ocorr, refPeca, MatrizPainel(tg, posX, posY, tangX, tangY, 1550), "NR12_PRESILHA_CANTO_REFERENCIA_" & contador.ToString())
+            contador += 1
+        Next
     End If
-    InserirModeloOrientado(ocorr, base, x, y, zAcimaChapa, nx, ny, tg, "NR12_BASE_REAL_" & contador.ToString(), False)
-    contador += 1
-    InserirModeloOrientado(ocorr, coluna, x, y, zAcimaChapa, nx, ny, tg, "NR12_COLUNA_REAL_" & contador.ToString(), False)
-    contador += 1
 End Sub
 
 ' Rotaciona a folha em planta ao redor do seu ponto de dobradica para mostrá-la aberta.
@@ -423,7 +443,9 @@ Function AnguloAjusteGramposGraus() As Double
     Return 0.0
 End Function
 
-Function UsarChapaInferiorReal() As Boolean
+Function GerarMarcadoresCanto() As Boolean
+    ' True = indicar com blocos genericos as presilhas extras das faces ortogonais.
+    ' False = nao criar marcadores. Substituir por IPT de presilha real no futuro.
     Return True
 End Function
 

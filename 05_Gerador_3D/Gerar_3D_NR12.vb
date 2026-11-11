@@ -2,8 +2,14 @@ Imports IO = System.IO
 Imports CI = System.Globalization.CultureInfo
 Imports IV = Inventor
 
+' PARAMETROS DE CALIBRACAO - editar se o eixo real dos grampos for diferente
+Private Const AFASTAMENTO_PLANO_GRADE_MM As Double = 65.0
+Private Const ANGULO_AJUSTE_GRAMPOS_GRAUS As Double = 0.0
+Private Const USAR_CHAPA_INFERIOR_REAL As Boolean = True
+Private Const FOLGA_INFERIOR_GRADE_MM As Double = 50.0
+
 ' NR12 Modular - gerador 3D preliminar, Inventor 2024.
-' VERSAO 0.6 - orientacao automatica de montantes e bases e folhas de porta abertas.
+' VERSAO 0.7 - grampos externos; chapa inferior sob base; grade sobre plano de grampo.
 ' Subdivisao automatica max. 2500 mm entre eixos de postes.
 ' Montantes e bases inseridos a partir da biblioteca CAD real fornecida.
 ' Criar como regra iLogic separada: Gerar_3D_NR12
@@ -85,6 +91,7 @@ Sub Main()
     Dim pastaModelos As String = IO.Path.Combine(raiz, "NR12_Modelos")
     Dim colunaReal As String = IO.Path.Combine(pastaModelos, "7.1.2 - COLUNA-MONTANTE.ipt")
     Dim baseReal As String = IO.Path.Combine(pastaModelos, "7.1.3 - BASE SOLDADA PARA MONTANTE.iam")
+    Dim chapaInferiorReal As String = IO.Path.Combine(pastaModelos, "7.1.4 - CHAPA LISA 1-2x130x185.ipt")
     If Not IO.File.Exists(colunaReal) OrElse Not IO.File.Exists(baseReal) Then
         MessageBox.Show("Os modelos reais da coluna e base nao foram encontrados." & vbCrLf & _
             "Extraia NR12_Modelos_Reais.zip na pasta da montagem (.iam), mantendo NR12_Modelos.", "NR12 - modelos ausentes")
@@ -94,6 +101,10 @@ Sub Main()
     Dim depend2 As String = IO.Path.Combine(pastaModelos, "7.1.3.2 - TUBO QUADRADO - 50 x 50 x 2  - 280mm.ipt")
     If Not IO.File.Exists(depend1) OrElse Not IO.File.Exists(depend2) Then
         MessageBox.Show("Faltam arquivos IPT referenciados pela base soldada.", "NR12")
+        Exit Sub
+    End If
+    If USAR_CHAPA_INFERIOR_REAL AndAlso Not IO.File.Exists(chapaInferiorReal) Then
+        MessageBox.Show("Chapa inferior real nao encontrada: " & chapaInferiorReal, "NR12")
         Exit Sub
     End If
     Dim dirPecas As String = IO.Path.Combine(raiz, "NR12_Gerado")
@@ -108,6 +119,19 @@ Sub Main()
     Dim posteMM As Double = 60
     Dim alturaCm As Double = alturaMM / 10
     Dim qtd As Integer = 0
+
+    ' Normal media por vertice: permite orientar o montante nos cantos.
+    Dim normaisPorPoste As New System.Collections.Generic.Dictionary(Of String, Double())(StringComparer.OrdinalIgnoreCase)
+    For Each registro As String() In dados
+        Dim aX As Double = Double.Parse(registro(0), inv)
+        Dim aY As Double = Double.Parse(registro(1), inv)
+        Dim bX As Double = Double.Parse(registro(2), inv)
+        Dim bY As Double = Double.Parse(registro(3), inv)
+        Dim nX As Double = 0, nY As Double = 0
+        NormalExternaTrecho(registro, dados, nX, nY)
+        AcumularNormal(normaisPorPoste, aX, aY, nX, nY)
+        AcumularNormal(normaisPorPoste, bX, bY, nX, nY)
+    Next
 
     ' Preparar pecas primeiro. Depois de validar todas, substituir ocorrencias antigas.
     For Each p As String() In dados
@@ -155,21 +179,26 @@ Sub Main()
         Dim ux As Double = dx / largura, uy As Double = dy / largura
         Dim modulo As String = If(p.Length = 10, p(8), If(p(6) = "Sem portao", "Sem janela", "Com porta"))
         Dim vazio As Boolean = p(5) = "Vazio"
-        CriarPosteSeNovo(pontos, ocorr, colunaReal, baseReal, x1, y1, trans, qtd)
-        CriarPosteSeNovo(pontos, ocorr, colunaReal, baseReal, x2, y2, trans, qtd)
+        Dim nx As Double = 0, ny As Double = 0
+        NormalExternaTrecho(p, dados, nx, ny)
+        CriarPosteSeNovo(pontos, normaisPorPoste, ocorr, colunaReal, baseReal, chapaInferiorReal, x1, y1, trans, qtd)
+        CriarPosteSeNovo(pontos, normaisPorPoste, ocorr, colunaReal, baseReal, chapaInferiorReal, x2, y2, trans, qtd)
         Dim larguraUtil As Double = largura - 60
-        Dim xInicial As Double = x1 + ux * 30
-        Dim yInicial As Double = y1 + uy * 30
+        ' A grade fica do lado EXTERNO, sobre a linha dos grampos.
+        Dim xInicial As Double = x1 + ux * 30 + nx * AFASTAMENTO_PLANO_GRADE_MM
+        Dim yInicial As Double = y1 + uy * 30 + ny * AFASTAMENTO_PLANO_GRADE_MM
+        Dim xFinal As Double = x2 + nx * AFASTAMENTO_PLANO_GRADE_MM
+        Dim yFinal As Double = y2 + ny * AFASTAMENTO_PLANO_GRADE_MM
         If modulo = "Com janela" Then
             Dim montante As String = ObterCaixa(dirPecas, geradas, "MontanteJanela", 50, alturaMM, 35)
             Dim travessa As String = ObterCaixa(dirPecas, geradas, "TravessaJanela", largura - 100, 50, 35)
             Inserir(ocorr, montante, MatrizPainel(trans, xInicial, yInicial, ux, uy, 0), "NR12_JANELA_M" & qtd.ToString())
             qtd += 1
-            Inserir(ocorr, montante, MatrizPainel(trans, x2 - ux * 80, y2 - uy * 80, ux, uy, 0), "NR12_JANELA_M" & qtd.ToString())
+            Inserir(ocorr, montante, MatrizPainel(trans, xFinal - ux * 80, yFinal - uy * 80, ux, uy, 0), "NR12_JANELA_M" & qtd.ToString())
             qtd += 1
-            Inserir(ocorr, travessa, MatrizPainel(trans, x1 + ux * 80, y1 + uy * 80, ux, uy, 0), "NR12_JANELA_T" & qtd.ToString())
+            Inserir(ocorr, travessa, MatrizPainel(trans, xInicial + ux * 50, yInicial + uy * 50, ux, uy, 0), "NR12_JANELA_T" & qtd.ToString())
             qtd += 1
-            Inserir(ocorr, travessa, MatrizPainel(trans, x1 + ux * 80, y1 + uy * 80, ux, uy, 1950), "NR12_JANELA_T" & qtd.ToString())
+            Inserir(ocorr, travessa, MatrizPainel(trans, xInicial + ux * 50, yInicial + uy * 50, ux, uy, 1950), "NR12_JANELA_T" & qtd.ToString())
             qtd += 1
         ElseIf modulo = "Com porta" Then
             ' Porta representada VISUALMENTE ABERTA a 60 graus para ser diferenciada dos paineis.
@@ -182,28 +211,28 @@ Sub Main()
             If tipoPorta = "Porta dupla" Then
                 Dim meiaLargura As Double = (largura - 80) / 2
                 Dim caminho As String = ObterCaixa(dirPecas, geradas, "FolhaPortaDupla", meiaLargura, alturaMM - 100, 40)
-                Inserir(ocorr, caminho, MatrizPortaAberta(trans, xInicial, yInicial, ux, uy, 50, sinal * 60), "NR12_PORTA_DUPLA_A_" & qtd.ToString())
+                Inserir(ocorr, caminho, MatrizPortaAberta(trans, xInicial, yInicial, ux, uy, FOLGA_INFERIOR_GRADE_MM, sinal * 60), "NR12_PORTA_DUPLA_A_" & qtd.ToString())
                 qtd += 1
-                Inserir(ocorr, caminho, MatrizPortaAberta(trans, x2 - ux * 30, y2 - uy * 30, -ux, -uy, 50, -sinal * 60), "NR12_PORTA_DUPLA_B_" & qtd.ToString())
+                Inserir(ocorr, caminho, MatrizPortaAberta(trans, xFinal - ux * 30, yFinal - uy * 30, -ux, -uy, FOLGA_INFERIOR_GRADE_MM, -sinal * 60), "NR12_PORTA_DUPLA_B_" & qtd.ToString())
                 qtd += 1
             ElseIf tipoPorta = "Porta deslizante" Then
                 Dim caminho As String = ObterCaixa(dirPecas, geradas, "FolhaPorta", larguraUtil, alturaMM - 100, 40)
                 ' Simula a porta deslizada 40% para facilitar leitura visual; sem trilho mecanico.
                 Dim deslocamento As Double = larguraUtil * 0.4
-                Inserir(ocorr, caminho, MatrizPainel(trans, xInicial + ux * deslocamento - uy * 100 * sinal, yInicial + uy * deslocamento + ux * 100 * sinal, ux, uy, 50), "NR12_PORTA_DESLIZANTE_" & qtd.ToString())
+                Inserir(ocorr, caminho, MatrizPainel(trans, xInicial + ux * deslocamento - uy * 100 * sinal, yInicial + uy * deslocamento + ux * 100 * sinal, ux, uy, FOLGA_INFERIOR_GRADE_MM), "NR12_PORTA_DESLIZANTE_" & qtd.ToString())
                 qtd += 1
             Else
                 Dim caminho As String = ObterCaixa(dirPecas, geradas, "FolhaPorta", larguraUtil, alturaMM - 100, 40)
                 If direito Then
-                    Inserir(ocorr, caminho, MatrizPortaAberta(trans, x2 - ux * 30, y2 - uy * 30, -ux, -uy, 50, -sinal * 60), "NR12_PORTA_SIMPLES_DIREITA_" & qtd.ToString())
+                    Inserir(ocorr, caminho, MatrizPortaAberta(trans, xFinal - ux * 30, yFinal - uy * 30, -ux, -uy, FOLGA_INFERIOR_GRADE_MM, -sinal * 60), "NR12_PORTA_SIMPLES_DIREITA_" & qtd.ToString())
                 Else
-                    Inserir(ocorr, caminho, MatrizPortaAberta(trans, xInicial, yInicial, ux, uy, 50, sinal * 60), "NR12_PORTA_SIMPLES_ESQUERDA_" & qtd.ToString())
+                    Inserir(ocorr, caminho, MatrizPortaAberta(trans, xInicial, yInicial, ux, uy, FOLGA_INFERIOR_GRADE_MM, sinal * 60), "NR12_PORTA_SIMPLES_ESQUERDA_" & qtd.ToString())
                 End If
                 qtd += 1
             End If
         ElseIf Not vazio Then
             Dim caminho As String = ObterCaixa(dirPecas, geradas, "Painel", larguraUtil, alturaMM - 100, 25)
-            Inserir(ocorr, caminho, MatrizPainel(trans, xInicial, yInicial, ux, uy, 50), "NR12_PAINEL_" & qtd.ToString())
+            Inserir(ocorr, caminho, MatrizPainel(trans, xInicial, yInicial, ux, uy, FOLGA_INFERIOR_GRADE_MM), "NR12_PAINEL_" & qtd.ToString())
             qtd += 1
         End If
     Next
@@ -213,45 +242,129 @@ Sub Main()
                     "Geometria de estudo: nao representa conformidade NR-12.", "NR12 Modular")
 End Sub
 
-' Insere modelos reais e coloca o eixo mais longo de cada arquivo na vertical (Z).
-' A orientacao continua aproximada: centro da caixa envolvente e Z inferior em zero.
-' O usuario deve confirmar face da base e furo de ancoragem no Inventor.
-Sub InserirModeloReal(ocorr As IV.ComponentOccurrences, caminho As String, x As Double, y As Double, tg As IV.TransientGeometry, nome As String)
-    Dim identidade As IV.Matrix = tg.CreateMatrix()
-    Dim o As IV.ComponentOccurrence = ocorr.Add(caminho, identidade)
-    o.Name = nome
-
-    Dim caixaLocal As IV.Box = o.RangeBox
-    Dim tamanhoX As Double = caixaLocal.MaxPoint.X - caixaLocal.MinPoint.X
-    Dim tamanhoY As Double = caixaLocal.MaxPoint.Y - caixaLocal.MinPoint.Y
-    Dim tamanhoZ As Double = caixaLocal.MaxPoint.Z - caixaLocal.MinPoint.Z
-    Dim rotacao As IV.Matrix = tg.CreateMatrix()
-    Dim origem As IV.Point = tg.CreatePoint(0, 0, 0)
-    If tamanhoX >= tamanhoY AndAlso tamanhoX > tamanhoZ Then
-        ' Eixo X do componente vira Z positivo.
-        rotacao.SetToRotation(-Math.PI / 2, tg.CreateVector(0, 1, 0), origem)
-    ElseIf tamanhoY > tamanhoX AndAlso tamanhoY > tamanhoZ Then
-        ' Eixo Y do componente vira Z positivo.
-        rotacao.SetToRotation(Math.PI / 2, tg.CreateVector(1, 0, 0), origem)
+' Normal externa: para perimetro fechado, usa a orientacao da polilinha.
+' Em trechos abertos, adota o lado direito do sentido do desenho.
+Sub NormalExternaTrecho(p As String(), todos As System.Collections.Generic.List(Of String()), ByRef nx As Double, ByRef ny As Double)
+    Dim inv As CI = CI.InvariantCulture
+    Dim x1 As Double = Double.Parse(p(0), inv)
+    Dim y1 As Double = Double.Parse(p(1), inv)
+    Dim x2 As Double = Double.Parse(p(2), inv)
+    Dim y2 As Double = Double.Parse(p(3), inv)
+    Dim dx As Double = x2 - x1, dy As Double = y2 - y1
+    Dim comprimento As Double = Math.Sqrt(dx * dx + dy * dy)
+    If comprimento < 0.000001 Then Throw New Exception("Segmento degenerado no layout.")
+    Dim area2 As Double = 0
+    Dim primeiro As String() = Nothing, ultimo As String() = Nothing
+    For Each outro As String() In todos
+        If outro(4) <> p(4) Then Continue For
+        If primeiro Is Nothing Then primeiro = outro
+        ultimo = outro
+        Dim ax As Double = Double.Parse(outro(0), inv)
+        Dim ay As Double = Double.Parse(outro(1), inv)
+        Dim bx As Double = Double.Parse(outro(2), inv)
+        Dim by As Double = Double.Parse(outro(3), inv)
+        area2 += ax * by - bx * ay
+    Next
+    Dim sentido As Double = 1.0
+    If primeiro IsNot Nothing AndAlso ultimo IsNot Nothing Then
+        Dim fechado As Boolean = Math.Abs(Double.Parse(primeiro(0), inv) - Double.Parse(ultimo(2), inv)) < 0.01 AndAlso _
+            Math.Abs(Double.Parse(primeiro(1), inv) - Double.Parse(ultimo(3), inv)) < 0.01
+        If fechado AndAlso area2 < 0 Then sentido = -1.0
     End If
-    o.Transformation = rotacao
-
-    ' Apos rotacionar, recalcula a caixa em coordenadas da montagem.
-    Dim caixaVertical As IV.Box = o.RangeBox
-    Dim centroX As Double = (caixaVertical.MinPoint.X + caixaVertical.MaxPoint.X) / 2
-    Dim centroY As Double = (caixaVertical.MinPoint.Y + caixaVertical.MaxPoint.Y) / 2
-    Dim minimoZ As Double = caixaVertical.MinPoint.Z
-    rotacao.SetTranslation(tg.CreateVector(x / 10 - centroX, y / 10 - centroY, -minimoZ), False)
-    o.Transformation = rotacao
+    nx = (dy / comprimento) * sentido
+    ny = (-dx / comprimento) * sentido
 End Sub
 
-Sub CriarPosteSeNovo(pontos As System.Collections.Generic.Dictionary(Of String, Boolean), ocorr As IV.ComponentOccurrences, coluna As String, base As String, x As Double, y As Double, tg As IV.TransientGeometry, ByRef contador As Integer)
-    Dim chave As String = Math.Round(x, 1).ToString(CI.InvariantCulture) & ";" & Math.Round(y, 1).ToString(CI.InvariantCulture)
+Function ChavePoste(x As Double, y As Double) As String
+    Return Math.Round(x, 1).ToString(CI.InvariantCulture) & ";" & Math.Round(y, 1).ToString(CI.InvariantCulture)
+End Function
+
+Sub AcumularNormal(tabela As System.Collections.Generic.Dictionary(Of String, Double()), x As Double, y As Double, nx As Double, ny As Double)
+    Dim chave As String = ChavePoste(x, y)
+    If Not tabela.ContainsKey(chave) Then tabela.Add(chave, New Double() {0, 0})
+    tabela(chave)(0) += nx
+    tabela(chave)(1) += ny
+End Sub
+
+' Insere CAD real em pe e gira a direcao LOCAL dos grampos para a normal externa.
+' Usa a dimensao mais longa para reconhecer o eixo vertical da coluna/base.
+' Face real dos grampos ainda depende do ajuste ANGULO_AJUSTE_GRAMPOS_GRAUS.
+Function InserirModeloOrientado(ocorr As IV.ComponentOccurrences, caminho As String, x As Double, y As Double, zBaseMm As Double, nx As Double, ny As Double, tg As IV.TransientGeometry, nome As String, chapaHorizontal As Boolean) As IV.ComponentOccurrence
+    Dim o As IV.ComponentOccurrence = ocorr.Add(caminho, tg.CreateMatrix())
+    o.Name = nome
+    Dim b As IV.Box = o.RangeBox
+    Dim dimX As Double = b.MaxPoint.X - b.MinPoint.X
+    Dim dimY As Double = b.MaxPoint.Y - b.MinPoint.Y
+    Dim dimZ As Double = b.MaxPoint.Z - b.MinPoint.Z
+    Dim eixo As Integer = 3
+    If chapaHorizontal Then
+        ' A menor dimensao da chapa corresponde a espessura.
+        If dimX <= dimY AndAlso dimX <= dimZ Then
+            eixo = 1
+        ElseIf dimY <= dimX AndAlso dimY <= dimZ Then
+            eixo = 2
+        End If
+    Else
+        If dimX >= dimY AndAlso dimX >= dimZ Then
+            eixo = 1
+        ElseIf dimY >= dimX AndAlso dimY >= dimZ Then
+            eixo = 2
+        End If
+    End If
+    Dim ang As Double = ANGULO_AJUSTE_GRAMPOS_GRAUS * Math.PI / 180.0
+    Dim fx As Double = nx * Math.Cos(ang) - ny * Math.Sin(ang)
+    Dim fy As Double = nx * Math.Sin(ang) + ny * Math.Cos(ang)
+    Dim ejeX As IV.Vector, ejeY As IV.Vector, ejeZ As IV.Vector
+    If eixo = 1 Then
+        ' X local vira Z; Y local aponta para o lado dos grampos.
+        ejeX = tg.CreateVector(0, 0, 1)
+        ejeY = tg.CreateVector(fx, fy, 0)
+        ejeZ = tg.CreateVector(-fy, fx, 0)
+    ElseIf eixo = 2 Then
+        ' Y local vira Z; X local aponta para o lado dos grampos.
+        ejeX = tg.CreateVector(fx, fy, 0)
+        ejeY = tg.CreateVector(0, 0, 1)
+        ejeZ = tg.CreateVector(fy, -fx, 0)
+    Else
+        ' Z local vira Z; X local aponta para o lado dos grampos.
+        ejeX = tg.CreateVector(fx, fy, 0)
+        ejeY = tg.CreateVector(-fy, fx, 0)
+        ejeZ = tg.CreateVector(0, 0, 1)
+    End If
+    Dim matriz As IV.Matrix = tg.CreateMatrix()
+    matriz.SetCoordinateSystem(tg.CreatePoint(0, 0, 0), ejeX, ejeY, ejeZ)
+    o.Transformation = matriz
+    ' Centralizar somente depois da rotacao; Z minimo deve ficar na altura definida.
+    Dim caixa As IV.Box = o.RangeBox
+    Dim meioX As Double = (caixa.MinPoint.X + caixa.MaxPoint.X) / 2
+    Dim meioY As Double = (caixa.MinPoint.Y + caixa.MaxPoint.Y) / 2
+    Dim zMin As Double = caixa.MinPoint.Z
+    matriz.SetTranslation(tg.CreateVector(x / 10 - meioX, y / 10 - meioY, zBaseMm / 10 - zMin), False)
+    o.Transformation = matriz
+    Return o
+End Function
+
+Sub CriarPosteSeNovo(pontos As System.Collections.Generic.Dictionary(Of String, Boolean), normais As System.Collections.Generic.Dictionary(Of String, Double()), ocorr As IV.ComponentOccurrences, coluna As String, base As String, chapa As String, x As Double, y As Double, tg As IV.TransientGeometry, ByRef contador As Integer)
+    Dim chave As String = ChavePoste(x, y)
     If pontos.ContainsKey(chave) Then Exit Sub
     pontos.Add(chave, True)
-    InserirModeloReal(ocorr, coluna, x, y, tg, "NR12_COLUNA_REAL_" & contador.ToString())
+    Dim nx As Double = 1, ny As Double = 0
+    If normais.ContainsKey(chave) Then
+        Dim vetor As Double() = normais(chave)
+        Dim tam As Double = Math.Sqrt(vetor(0) * vetor(0) + vetor(1) * vetor(1))
+        If tam > 0.000001 Then
+            nx = vetor(0) / tam : ny = vetor(1) / tam
+        End If
+    End If
+    Dim zAcimaChapa As Double = 0
+    If USAR_CHAPA_INFERIOR_REAL Then
+        Dim ocorrChapa As IV.ComponentOccurrence = InserirModeloOrientado(ocorr, chapa, x, y, 0, nx, ny, tg, "NR12_CHAPA_INFERIOR_" & contador.ToString(), True)
+        zAcimaChapa = ocorrChapa.RangeBox.MaxPoint.Z * 10
+        contador += 1
+    End If
+    InserirModeloOrientado(ocorr, base, x, y, zAcimaChapa, nx, ny, tg, "NR12_BASE_REAL_" & contador.ToString(), False)
     contador += 1
-    InserirModeloReal(ocorr, base, x, y, tg, "NR12_BASE_REAL_" & contador.ToString())
+    InserirModeloOrientado(ocorr, coluna, x, y, zAcimaChapa, nx, ny, tg, "NR12_COLUNA_REAL_" & contador.ToString(), False)
     contador += 1
 End Sub
 

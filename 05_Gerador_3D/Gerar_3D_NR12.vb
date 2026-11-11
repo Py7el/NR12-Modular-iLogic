@@ -3,6 +3,7 @@ Imports CI = System.Globalization.CultureInfo
 Imports IV = Inventor
 
 ' NR12 Modular - gerador 3D preliminar, Inventor 2024.
+' VERSAO 0.5.1 - usa exatamente a pasta da montagem para localizar NR12_layout.txt.
 ' Subdivisao automatica max. 2500 mm entre eixos de postes.
 ' Montantes e bases inseridos a partir da biblioteca CAD real fornecida.
 ' Criar como regra iLogic separada: Gerar_3D_NR12
@@ -22,7 +23,10 @@ Sub Main()
     Dim raiz As String = IO.Path.GetDirectoryName(montagem.FullFileName)
     Dim fonte As String = IO.Path.Combine(raiz, "NR12_layout.txt")
     If Not IO.File.Exists(fonte) Then
-        MessageBox.Show("Layout inexistente: " & fonte, "NR12")
+        MessageBox.Show("Layout NR12 nao encontrado na pasta desta montagem:" & vbCrLf & _
+            raiz & vbCrLf & vbCrLf & _
+            "Abra o editor 2D, desenhe/carregue a planta e clique Salvar planta." & vbCrLf & _
+            "Arquivo esperado: " & fonte, "NR12 - layout ausente")
         Exit Sub
     End If
     Dim dados As New System.Collections.Generic.List(Of String())

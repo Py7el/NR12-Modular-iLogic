@@ -4,7 +4,7 @@ Imports SD = System.Drawing
 Imports IO = System.IO
 
 ' NR12 Modular — prototipo do editor 2D para iLogic / Inventor 2024.
-' VERSAO TESTE V0.5 - portas representadas em planta; modo 45 removido.
+' VERSAO TESTE V0.5.1 - sincronizacao do caminho de layout com gerador 3D.
 ' A malha de 500 mm limita apenas novos cliques, nao a edicao de cotas.
 ' Inspirado na composicao e paleta do Painel_parametros.vb do projeto original.
 ' Ainda nao gera montagem 3D nem valida requisitos normativos.
@@ -615,13 +615,12 @@ Sub GerarMontagem3D(sender As Object, e As EventArgs)
         MessageBox.Show("Desenhe ao menos um segmento.", "NR12")
         Exit Sub
     End If
-    AoClicarSalvarLayoutNR12(Nothing, EventArgs.Empty)
-    If Not IO.File.Exists(arquivo) Then Exit Sub
+    If Not SalvarLayoutNR12() Then Exit Sub
     Try
         iLogicVb.RunRule("Gerar_3D_NR12")
-        lblStatus.Text = "Geracao 3D solicitada. Verifique a montagem."
+        lblStatus.Text = "Regra 3D executada. Confira as ocorrencias da montagem."
     Catch ex As Exception
-        MessageBox.Show("Crie a regra Gerar_3D_NR12 na mesma montagem." & vbCrLf & ex.Message, "NR12")
+        MessageBox.Show("Falha na regra Gerar_3D_NR12:" & vbCrLf & ex.Message, "NR12")
     End Try
 End Sub
 
@@ -643,21 +642,32 @@ Sub TeclaJanela(sender As Object, e As KeyEventArgs)
 End Sub
 
 Sub AoClicarSalvarLayoutNR12(sender As Object, e As EventArgs)
+    SalvarLayoutNR12()
+End Sub
+
+Function SalvarLayoutNR12() As Boolean
     Try
+        ' Resolve a pasta sempre pela montagem em que a regra esta sendo executada.
+        Dim caminhoMontagem As String = ThisDoc.Document.FullFileName
+        If String.IsNullOrWhiteSpace(caminhoMontagem) Then Throw New Exception("Salve primeiro a montagem .iam.")
+        arquivo = IO.Path.Combine(IO.Path.GetDirectoryName(caminhoMontagem), "NR12_layout.txt")
         Dim linhas As New System.Collections.Generic.List(Of String)
         linhas.Add("# NR12-layout-v2; X1;Y1;X2;Y2;Grupo;Tipo;Acesso;Abertura;Modulo;Porta")
+        Dim inv As System.Globalization.CultureInfo = System.Globalization.CultureInfo.InvariantCulture
         For Each s As SegmentoNR In lista
-            Dim inv As System.Globalization.CultureInfo = System.Globalization.CultureInfo.InvariantCulture
             linhas.Add(String.Join(";", New String() {s.X1.ToString(inv), s.Y1.ToString(inv), s.X2.ToString(inv), s.Y2.ToString(inv), s.Grupo.ToString(inv), s.Tipo, s.Acesso, s.Abertura, s.Modulo, s.Porta}))
         Next
         IO.File.WriteAllLines(arquivo, linhas.ToArray(), System.Text.Encoding.UTF8)
-        lblStatus.Text = "Layout salvo em " & arquivo
+        lblStatus.Text = "Layout salvo: " & arquivo
+        Return True
     Catch ex As Exception
-        MessageBox.Show(ex.Message, "Falha ao salvar")
+        MessageBox.Show("Nao foi possivel salvar NR12_layout.txt:" & vbCrLf & ex.Message, "NR12 - falha ao salvar")
+        Return False
     End Try
-End Sub
+End Function
 
 Sub AoClicarCarregarLayoutNR12(sender As Object, e As EventArgs)
+    arquivo = IO.Path.Combine(IO.Path.GetDirectoryName(ThisDoc.Document.FullFileName), "NR12_layout.txt")
     If Not IO.File.Exists(arquivo) Then
         MessageBox.Show("Arquivo ainda nao existe: " & arquivo, "NR12 Modular")
         Exit Sub

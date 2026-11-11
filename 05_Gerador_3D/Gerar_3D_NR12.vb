@@ -5,7 +5,7 @@ Imports IV = Inventor
 ' Parametros ficam nas funcoes no final desta regra para evitar declaracoes no namespace.
 
 ' NR12 Modular - gerador 3D preliminar, Inventor 2024.
-' VERSAO 0.8 - uma orientacao por face nos cantos; base original sem chapa extra; marcadores de presilha.
+' VERSAO 0.9 - grampo complementar por face ativa, sem duplicar em trechos colineares.
 ' Subdivisao automatica max. 2500 mm entre eixos de postes.
 ' Montantes e bases inseridos a partir da biblioteca CAD real fornecida.
 ' Criar como regra iLogic separada: Gerar_3D_NR12
@@ -111,18 +111,26 @@ Sub Main()
     Dim alturaCm As Double = alturaMM / 10
     Dim qtd As Integer = 0
 
-    ' Uma orientacao PRINCIPAL por poste. Nao calcular a bissetriz de cantos de 90 graus.
-    Dim normaisPorPoste As New System.Collections.Generic.Dictionary(Of String, Double())(StringComparer.OrdinalIgnoreCase)
-    Dim normaisExtrasPorPoste As New System.Collections.Generic.Dictionary(Of String, System.Collections.Generic.List(Of Double()))(StringComparer.OrdinalIgnoreCase)
+    ' Faces de montagem com fechamento: cada poste tem uma lista de faces ativas.
+    ' Uma face = normal externa (nx,ny) + direcao do painel saindo do poste (tx,ty).
+    ' Segmentos VAZIOS nao criam grampos complementares.
+    Dim facesPorPoste As New System.Collections.Generic.Dictionary(Of String, System.Collections.Generic.List(Of Double()))(StringComparer.OrdinalIgnoreCase)
     For Each registro As String() In dados
+        Dim moduloFace As String = If(registro.Length = 10, registro(8), If(registro(6) = "Sem portao", "Sem janela", "Com porta"))
+        Dim haFechamento As Boolean = (moduloFace = "Com porta") OrElse (registro(5) <> "Vazio")
+        If Not haFechamento Then Continue For
         Dim aX As Double = Double.Parse(registro(0), inv)
         Dim aY As Double = Double.Parse(registro(1), inv)
         Dim bX As Double = Double.Parse(registro(2), inv)
         Dim bY As Double = Double.Parse(registro(3), inv)
+        Dim vx As Double = bX - aX, vy As Double = bY - aY
+        Dim tamanhoFace As Double = Math.Sqrt(vx * vx + vy * vy)
+        If tamanhoFace <= 0.001 Then Continue For
+        Dim tx As Double = vx / tamanhoFace, ty As Double = vy / tamanhoFace
         Dim nX As Double = 0, nY As Double = 0
         NormalExternaTrecho(registro, dados, nX, nY)
-        RegistrarNormalDoPoste(normaisPorPoste, normaisExtrasPorPoste, aX, aY, nX, nY)
-        RegistrarNormalDoPoste(normaisPorPoste, normaisExtrasPorPoste, bX, bY, nX, nY)
+        RegistrarFaceAtiva(facesPorPoste, aX, aY, nX, nY, tx, ty)
+        RegistrarFaceAtiva(facesPorPoste, bX, bY, nX, nY, -tx, -ty)
     Next
 
     ' Preparar pecas primeiro. Depois de validar todas, substituir ocorrencias antigas.
@@ -173,8 +181,8 @@ Sub Main()
         Dim vazio As Boolean = p(5) = "Vazio"
         Dim nx As Double = 0, ny As Double = 0
         NormalExternaTrecho(p, dados, nx, ny)
-        CriarPosteSeNovo(pontos, normaisPorPoste, normaisExtrasPorPoste, ocorr, colunaReal, baseReal, x1, y1, trans, qtd, dirPecas, geradas)
-        CriarPosteSeNovo(pontos, normaisPorPoste, normaisExtrasPorPoste, ocorr, colunaReal, baseReal, x2, y2, trans, qtd, dirPecas, geradas)
+        CriarPosteSeNovo(pontos, facesPorPoste, ocorr, colunaReal, baseReal, pastaModelos, x1, y1, trans, qtd, dirPecas, geradas)
+        CriarPosteSeNovo(pontos, facesPorPoste, ocorr, colunaReal, baseReal, pastaModelos, x2, y2, trans, qtd, dirPecas, geradas)
         Dim larguraUtil As Double = largura - 60
         ' A grade fica do lado EXTERNO, sobre a linha dos grampos.
         Dim xInicial As Double = x1 + ux * 30 + nx * AfastamentoPlanoGradeMm()
@@ -271,22 +279,20 @@ Function ChavePoste(x As Double, y As Double) As String
     Return Math.Round(x, 1).ToString(CI.InvariantCulture) & ";" & Math.Round(y, 1).ToString(CI.InvariantCulture)
 End Function
 
-' Registra a primeira normal como orientacao do poste; normals de faces adicionais
-' sao guardadas em separado. Postes de canto NAO usam media (que geraria 45 graus).
-Sub RegistrarNormalDoPoste(principais As System.Collections.Generic.Dictionary(Of String, Double()), extras As System.Collections.Generic.Dictionary(Of String, System.Collections.Generic.List(Of Double())), x As Double, y As Double, nx As Double, ny As Double)
+' Cada poste conserva todas as NORMAIS distintas das faces com fechamento.
+' Segmentos retos colineares com a mesma normal compartilham uma unica face.
+' Para quinas de 90 graus, as duas normais sao conservadas sem media / sem bissetriz.
+Sub RegistrarFaceAtiva(faces As System.Collections.Generic.Dictionary(Of String, System.Collections.Generic.List(Of Double())), x As Double, y As Double, nx As Double, ny As Double, tx As Double, ty As Double)
     Dim chave As String = ChavePoste(x, y)
-    If Not principais.ContainsKey(chave) Then
-        principais.Add(chave, New Double() {nx, ny})
-        Return
+    If Not faces.ContainsKey(chave) Then
+        faces.Add(chave, New System.Collections.Generic.List(Of Double()))
     End If
-    Dim primeira As Double() = principais(chave)
-    Dim produto As Double = primeira(0) * nx + primeira(1) * ny
-    If Math.Abs(produto) > 0.95 Then Return
-    If Not extras.ContainsKey(chave) Then extras.Add(chave, New System.Collections.Generic.List(Of Double()))
-    For Each atual As Double() In extras(chave)
-        If Math.Abs(atual(0) * nx + atual(1) * ny) > 0.95 Then Return
+    For Each jaRegistrada As Double() In faces(chave)
+        Dim mesmoPlano As Double = jaRegistrada(0) * nx + jaRegistrada(1) * ny
+        ' A mesma normal externa corresponde ao mesmo plano de fixacao.
+        If mesmoPlano > 0.98 Then Exit Sub
     Next
-    extras(chave).Add(New Double() {nx, ny})
+    faces(chave).Add(New Double() {nx, ny, tx, ty})
 End Sub
 
 ' Insere CAD real em pe com face PRINCIPAL do poste alinhada a um dos trechos.
@@ -347,41 +353,53 @@ Function InserirModeloOrientado(ocorr As IV.ComponentOccurrences, caminho As Str
     Return o
 End Function
 
-' Coluna e base reais: o arquivo BASE SOLDADA ja contem a chapa 7.1.3.1.
-' Nenhuma chapa 7.1.4 deve ser colocada sob a base.
-Sub CriarPosteSeNovo(pontos As System.Collections.Generic.Dictionary(Of String, Boolean), normais As System.Collections.Generic.Dictionary(Of String, Double()), extras As System.Collections.Generic.Dictionary(Of String, System.Collections.Generic.List(Of Double())), ocorr As IV.ComponentOccurrences, coluna As String, base As String, x As Double, y As Double, tg As IV.TransientGeometry, ByRef contador As Integer, pastaPecas As String, cache As System.Collections.Generic.Dictionary(Of String, String))
+' Insere UMA coluna e UMA base por coordenada de poste.
+' O modelo original ja traz grampos numa de suas faces: esta e a face principal.
+' Para cada outra face ativa, adiciona 2 GRAMPOS COMPLEMENTARES.
+' Se GRAMPO_NR12.ipt existir, insere esse CAD; senao, gera uma peca visual provisoria.
+' Sem face ativa, nenhuma presilha complementar sera criada.
+Sub CriarPosteSeNovo(pontos As System.Collections.Generic.Dictionary(Of String, Boolean), faces As System.Collections.Generic.Dictionary(Of String, System.Collections.Generic.List(Of Double())), ocorr As IV.ComponentOccurrences, coluna As String, base As String, pastaModelos As String, x As Double, y As Double, tg As IV.TransientGeometry, ByRef contador As Integer, pastaPecas As String, cache As System.Collections.Generic.Dictionary(Of String, String))
     Dim chave As String = ChavePoste(x, y)
     If pontos.ContainsKey(chave) Then Exit Sub
     pontos.Add(chave, True)
-    Dim nx As Double = 1, ny As Double = 0
-    If normais.ContainsKey(chave) Then
-        Dim vetor As Double() = normais(chave)
-        Dim tam As Double = Math.Sqrt(vetor(0) * vetor(0) + vetor(1) * vetor(1))
-        If tam > 0.000001 Then
-            nx = vetor(0) / tam : ny = vetor(1) / tam
+    Dim nx As Double = 1.0, ny As Double = 0.0
+    Dim listaFaces As System.Collections.Generic.List(Of Double()) = Nothing
+    If faces.ContainsKey(chave) Then
+        listaFaces = faces(chave)
+        If listaFaces.Count > 0 Then
+            nx = listaFaces(0)(0)
+            ny = listaFaces(0)(1)
         End If
     End If
-    ' A base soldada e a coluna compartilham o piso Z=0; nao adicionar chapa solta.
+
+    ' Uma unica base original: o subcomponente 7.1.3.1 ja esta dentro do IAM.
     InserirModeloOrientado(ocorr, base, x, y, 0, nx, ny, tg, "NR12_BASE_REAL_" & contador.ToString(), False)
     contador += 1
     InserirModeloOrientado(ocorr, coluna, x, y, 0, nx, ny, tg, "NR12_COLUNA_REAL_" & contador.ToString(), False)
     contador += 1
 
-    ' Se o canto possui outras faces, registrar as presilhas necessarias.
-    ' Sao blocos VISUAIS de referencia, nao presilhas reais de producao.
-    If GerarMarcadoresCanto() AndAlso extras.ContainsKey(chave) Then
-        Dim refPeca As String = ObterCaixa(pastaPecas, cache, "PresilhaCanto_APENAS_REFERENCIA", 60, 45, 8)
-        For Each direcao As Double() In extras(chave)
-            Dim ex As Double = direcao(0), ey As Double = direcao(1)
-            Dim tangX As Double = -ey, tangY As Double = ex
-            Dim posX As Double = x + ex * 35 - tangX * 30
-            Dim posY As Double = y + ey * 35 - tangY * 30
-            Inserir(ocorr, refPeca, MatrizPainel(tg, posX, posY, tangX, tangY, 450), "NR12_PRESILHA_CANTO_REFERENCIA_" & contador.ToString())
-            contador += 1
-            Inserir(ocorr, refPeca, MatrizPainel(tg, posX, posY, tangX, tangY, 1550), "NR12_PRESILHA_CANTO_REFERENCIA_" & contador.ToString())
-            contador += 1
-        Next
+    ' O clamp principal ja aparece na coluna CAD; apenas as demais faces
+    ' recebem os pares adicionais. Em trechos retos, nao adiciona duplicatas.
+    If listaFaces Is Nothing OrElse listaFaces.Count < 2 Then Exit Sub
+    Dim caminhoGrampo As String = IO.Path.Combine(pastaModelos, "GRAMPO_NR12.ipt")
+    Dim grampoReal As Boolean = IO.File.Exists(caminhoGrampo)
+    If Not grampoReal Then
+        caminhoGrampo = ObterCaixa(pastaPecas, cache, "GrampoComplementar_REFERENCIA", 55, 35, 6)
     End If
+
+    For indiceFace As Integer = 1 To listaFaces.Count - 1
+        Dim face As Double() = listaFaces(indiceFace)
+        Dim extX As Double = face(0), extY As Double = face(1)
+        ' MatrizPainel: o eixo Z local aponta para a normal externa.
+        Dim tangX As Double = -extY, tangY As Double = extX
+        Dim pontoX As Double = x + extX * AfastamentoGrampoMm() - tangX * 27.5
+        Dim pontoY As Double = y + extY * AfastamentoGrampoMm() - tangY * 27.5
+        Dim tipo As String = If(grampoReal, "REAL_", "REFERENCIA_")
+        Inserir(ocorr, caminhoGrampo, MatrizPainel(tg, pontoX, pontoY, tangX, tangY, AlturaGrampoInferiorMm()), "NR12_GRAMPO_EXTRA_" & tipo & contador.ToString())
+        contador += 1
+        Inserir(ocorr, caminhoGrampo, MatrizPainel(tg, pontoX, pontoY, tangX, tangY, AlturaGrampoSuperiorMm()), "NR12_GRAMPO_EXTRA_" & tipo & contador.ToString())
+        contador += 1
+    Next
 End Sub
 
 ' Rotaciona a folha em planta ao redor do seu ponto de dobradica para mostrá-la aberta.
@@ -443,10 +461,17 @@ Function AnguloAjusteGramposGraus() As Double
     Return 0.0
 End Function
 
-Function GerarMarcadoresCanto() As Boolean
-    ' True = indicar com blocos genericos as presilhas extras das faces ortogonais.
-    ' False = nao criar marcadores. Substituir por IPT de presilha real no futuro.
-    Return True
+Function AfastamentoGrampoMm() As Double
+    ' Distancia provisoria do eixo do poste ate a face do grampo.
+    Return 35.0
+End Function
+
+Function AlturaGrampoInferiorMm() As Double
+    Return 450.0
+End Function
+
+Function AlturaGrampoSuperiorMm() As Double
+    Return 1550.0
 End Function
 
 Function FolgaInferiorGradeMm() As Double

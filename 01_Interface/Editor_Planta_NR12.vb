@@ -4,7 +4,7 @@ Imports SD = System.Drawing
 Imports IO = System.IO
 
 ' NR12 Modular — prototipo do editor 2D para iLogic / Inventor 2024.
-' VERSAO TESTE V0.4 - cotas editaveis com comprimento exato (mm).
+' VERSAO TESTE V0.4.2 - entrada de cotas por InputBox, sem TextBox.
 ' A malha de 500 mm limita apenas novos cliques, nao a edicao de cotas.
 ' Inspirado na composicao e paleta do Painel_parametros.vb do projeto original.
 ' Ainda nao gera montagem 3D nem valida requisitos normativos.
@@ -358,53 +358,25 @@ Sub EditarCotaPorDuploClique(sender As Object, e As MouseEventArgs)
     ExibirPropriedades()
     Dim atual As SegmentoNR = lista(idx)
     Dim comprimento As Double = Math.Sqrt(Math.Pow(atual.X2 - atual.X1, 2) + Math.Pow(atual.Y2 - atual.Y1, 2))
-    Using dialogo As New Form()
-        dialogo.Text = "Editar cota - Segmento " & (idx + 1).ToString()
-        dialogo.StartPosition = FormStartPosition.CenterParent
-        dialogo.FormBorderStyle = FormBorderStyle.FixedDialog
-        dialogo.MinimizeBox = False
-        dialogo.MaximizeBox = False
-        dialogo.ClientSize = New SD.Size(325, 136)
-        Dim indicacao As New Label()
-        indicacao.Text = "Novo comprimento em mm (valor exato):"
-        indicacao.Location = New SD.Point(14, 16)
-        indicacao.Size = New SD.Size(295, 22)
-        dialogo.Controls.Add(indicacao)
-        Dim valor As New System.Windows.Forms.TextBox()
-        valor.Location = New SD.Point(14, 45)
-        valor.Size = New SD.Size(295, 26)
-        valor.Text = comprimento.ToString("0.###", System.Globalization.CultureInfo.CurrentCulture)
-        valor.SelectAll()
-        dialogo.Controls.Add(valor)
-        Dim confirmar As New Button()
-        confirmar.Text = "Aplicar"
-        confirmar.Location = New SD.Point(125, 90)
-        confirmar.Size = New SD.Size(85, 30)
-        confirmar.DialogResult = DialogResult.OK
-        dialogo.Controls.Add(confirmar)
-        Dim cancelar As New Button()
-        cancelar.Text = "Cancelar"
-        cancelar.Location = New SD.Point(220, 90)
-        cancelar.Size = New SD.Size(90, 30)
-        cancelar.DialogResult = DialogResult.Cancel
-        dialogo.Controls.Add(cancelar)
-        dialogo.AcceptButton = confirmar
-        dialogo.CancelButton = cancelar
-        If dialogo.ShowDialog(janela) <> DialogResult.OK Then Exit Sub
-        Dim textoMedida As String = valor.Text.Trim().Replace(" ", "")
-        Dim medida As Double
-        If Not Double.TryParse(textoMedida, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.CurrentCulture, medida) Then
-            If Not Double.TryParse(textoMedida.Replace(","c, "."c), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, medida) Then
-                MessageBox.Show("Informe um numero valido em milimetros.", "NR12")
-                Exit Sub
-            End If
-        End If
-        If Double.IsNaN(medida) OrElse Double.IsInfinity(medida) OrElse medida < 1 OrElse medida > 100000 Then
-            MessageBox.Show("Informe um comprimento entre 1 e 100000 mm.", "NR12")
+    ' Caixa simples sem controles TextBox para evitar conflito com a API Inventor.
+    Dim textoMedida As String = Microsoft.VisualBasic.Interaction.InputBox( _
+        "Novo comprimento exato em mm:", _
+        "Editar cota - Segmento " & (idx + 1).ToString(), _
+        comprimento.ToString("0.###", System.Globalization.CultureInfo.CurrentCulture))
+    If String.IsNullOrWhiteSpace(textoMedida) Then Exit Sub
+    textoMedida = textoMedida.Trim().Replace(" ", "")
+    Dim medida As Double
+    If Not Double.TryParse(textoMedida, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.CurrentCulture, medida) Then
+        If Not Double.TryParse(textoMedida.Replace(","c, "."c), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, medida) Then
+            MessageBox.Show("Informe um numero valido em milimetros.", "NR12")
             Exit Sub
         End If
-        AtualizarComprimentoExato(idx, medida)
-    End Using
+    End If
+    If Double.IsNaN(medida) OrElse Double.IsInfinity(medida) OrElse medida < 1 OrElse medida > 100000 Then
+        MessageBox.Show("Informe um comprimento entre 1 e 100000 mm.", "NR12")
+        Exit Sub
+    End If
+    AtualizarComprimentoExato(idx, medida)
 End Sub
 
 Sub AtualizarComprimentoExato(idx As Integer, novaMedida As Double)

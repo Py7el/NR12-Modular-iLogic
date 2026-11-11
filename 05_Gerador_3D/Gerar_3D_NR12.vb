@@ -5,7 +5,7 @@ Imports IV = Inventor
 ' Parametros ficam nas funcoes no final desta regra para evitar declaracoes no namespace.
 
 ' NR12 Modular - gerador 3D preliminar, Inventor 2024.
-' VERSAO 1.0 EXPERIMENTAL - utiliza colunas CAD de duas faces A/B em quinas ortogonais.
+' VERSAO 1.1 EXPERIMENTAL - identifica quinas pelas direcoes dos segmentos e relata colunas A/B.
 ' Subdivisao automatica max. 2500 mm entre eixos de postes.
 ' Montantes e bases inseridos a partir da biblioteca CAD real fornecida.
 ' Criar como regra iLogic separada: Gerar_3D_NR12
@@ -140,7 +140,7 @@ Sub Main()
     For Each faces As System.Collections.Generic.List(Of Double()) In facesPorPoste.Values
         If faces.Count > 2 Then Throw New Exception("Poste com 3 ou mais faces ativas: biblioteca A/B de duas faces nao atende esta juncao.")
         If faces.Count = 2 Then
-            Dim produto As Double = faces(0)(0) * faces(1)(0) + faces(0)(1) * faces(1)(1)
+            Dim produto As Double = faces(0)(2) * faces(1)(2) + faces(0)(3) * faces(1)(3)
             If Math.Abs(produto) > 0.15 Then
                 Throw New Exception("Juncao de duas faces sem angulo de 90 graus. Revise a planta ou use outra biblioteca.")
             End If
@@ -154,6 +154,17 @@ Sub Main()
         Exit Sub
     End If
 
+    Dim totalCantos As Integer = 0, totalA As Integer = 0, totalB As Integer = 0
+    For Each par As System.Collections.Generic.KeyValuePair(Of String, System.Collections.Generic.List(Of Double())) In facesPorPoste
+        If par.Value.Count <> 2 Then Continue For
+        totalCantos += 1
+        Dim modeloEscolhido As String = SelecionarVarianteDeCanto(par.Value, colunaCantoA, colunaCantoB)
+        If String.Equals(modeloEscolhido, colunaCantoA, StringComparison.OrdinalIgnoreCase) Then
+            totalA += 1
+        Else
+            totalB += 1
+        End If
+    Next
     ' Preparar pecas primeiro. Depois de validar todas, substituir ocorrencias antigas.
     For Each p As String() In dados
         Dim x1 As Double = Double.Parse(p(0), inv)
@@ -259,6 +270,8 @@ Sub Main()
     Next
     montagem.Update2()
     MessageBox.Show("Geracao concluida: " & dados.Count.ToString() & " segmentos processados." & vbCrLf & _
+                    "Quinas detectadas: " & totalCantos.ToString() & _
+                    " | Colunas A: " & totalA.ToString() & " | Colunas B: " & totalB.ToString() & vbCrLf & _
                     "Pecas salvas em: " & dirPecas & vbCrLf & _
                     "Geometria de estudo: nao representa conformidade NR-12.", "NR12 Modular")
 End Sub
@@ -309,9 +322,14 @@ Sub RegistrarFaceAtiva(faces As System.Collections.Generic.Dictionary(Of String,
         faces.Add(chave, New System.Collections.Generic.List(Of Double()))
     End If
     For Each jaRegistrada As Double() In faces(chave)
-        Dim mesmoPlano As Double = jaRegistrada(0) * nx + jaRegistrada(1) * ny
-        ' A mesma normal externa corresponde ao mesmo plano de fixacao.
-        If mesmoPlano > 0.98 Then Exit Sub
+        ' Comparar AXIS do painel (nao a normal): lados opostos do mesmo
+        ' trecho continuam sendo a mesma face fisica de fixacao.
+        Dim eixoCoincidente As Double = jaRegistrada(2) * tx + jaRegistrada(3) * ty
+        If Math.Abs(eixoCoincidente) > 0.98 Then
+            ' Preferir o registro do inicio do segmento para orientacao A/B.
+            If ehInicio AndAlso jaRegistrada(4) < 0.5 Then jaRegistrada(4) = 1.0
+            Exit Sub
+        End If
     Next
     faces(chave).Add(New Double() {nx, ny, tx, ty, If(ehInicio, 1.0, 0.0)})
 End Sub

@@ -75,3 +75,11 @@ A regra `05_Gerador_3D/Gerar_3D_NR12.vb` foi atualizada para:
 **Parâmetros no começo do gerador:** `AFASTAMENTO_PLANO_GRADE_MM = 65`, `ANGULO_AJUSTE_GRAMPOS_GRAUS = 0`, `FOLGA_INFERIOR_GRADE_MM = 50` e `USAR_CHAPA_INFERIOR_REAL = True`. São pontos de partida, **não medidas extraídas/verificadas dos CAD**, e devem ser ajustados após inspeção na montagem.
 
 **Limite importante:** a classificação de eixos pela caixa envolvente não revela a face CAD onde estão os grampos, nem garante o alinhamento das interfaces de solda e furação. A coluna e a base são posicionadas como ocorrências distintas; para fixação mecânica correta, será necessário definir referências locais e relações de montagem (ou usar o conjunto principal com referências resolvidas). Não use esta versão como montagem final de fabricação ou de conformidade NR-12. Testar em uma cópia: o gerador apaga as ocorrências anteriores cujos nomes comecem com `NR12_`.
+
+## Correcao de cantos e base — v0.8
+
+- O arquivo de base real `7.1.3 - BASE SOLDADA PARA MONTANTE.iam` ja incorpora a chapa real `7.1.3.1 - CHAPA LISA 3-4x130x130 (BASE).ipt`. A adicao errada da chapa avulsa `7.1.4` sob a base foi retirada.
+- Poste de canto: usa normal do primeiro trecho incidente em vez de calcular a bissetriz (que causava orientacao de 45°). Ao compartilhar um canto, o poste continua unico.
+- As outras faces do canto agora recebem dois **marcadores genericos** por face, identificados `NR12_PRESILHA_CANTO_REFERENCIA_...`, a 450 e 1550 mm de Z. Eles **nao sao a presilha CAD verdadeira e nao devem ser usados para fabricacao**. Podem ser desligados definindo `GerarMarcadoresCanto() = False`.
+- Os montantes e bases continuam posicionados com orientacao de estimativa derivada da caixa envolvente; a face exata dos grampos, coincidencia de furos e alturas das interfaces **ainda exigem calibracao com referencia CAD local**. O arquivo do modelo da presilha nao veio como componente individual identificavel no ZIP.
+- A regeneracao remove ocorrencias com prefixo `NR12_`. Validar tudo em uma copia da montagem.
